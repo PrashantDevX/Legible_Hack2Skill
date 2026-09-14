@@ -1,69 +1,228 @@
-import Image from "next/image";
+"use client";
+
+import { useRef, useState } from "react";
+import { AnalysisView } from "@/components/analysis-view";
+import { AskPanel } from "@/components/ask-panel";
+import { SAMPLE_LEASE } from "@/lib/sample";
+import type { VerifiedAnalysis } from "@/lib/schemas";
+
+type Phase = "idle" | "analyzing" | "done";
 
 export default function Home() {
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [mode, setMode] = useState<"file" | "text">("file");
+  const [pasted, setPasted] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [docText, setDocText] = useState("");
+  const [analysis, setAnalysis] = useState<VerifiedAnalysis | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function analyze(file: File | null, text: string) {
+    setPhase("analyzing");
+    setError(null);
+    setAnalysis(null);
+    try {
+      const form = new FormData();
+      if (file) form.set("file", file);
+      else form.set("text", text);
+      const response = await fetch("/api/analyze", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Analysis failed.");
+      setAnalysis(data.analysis);
+      setDocText(data.text);
+      setTruncated(Boolean(data.truncated));
+      setPhase("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analysis failed.");
+      setPhase("idle");
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10 sm:px-6">
+      <header className={phase === "done" ? "sr-only" : "text-center"}>
+        <h1 className="text-4xl font-bold tracking-tight text-ink">Legible</h1>
+        <p className="mt-3 text-lg">Understand any legal document before you sign it.</p>
+        <p className="mx-auto mt-2 max-w-xl text-sm text-muted">
+          Upload a lease, employment contract, or agreement. Get a plain-language brief:
+          key clauses, what you&rsquo;re agreeing to, possible concerns, and questions to ask a
+          lawyer — with every finding traced back to your own document.
+        </p>
+      </header>
+
+      {phase !== "done" && (
+        <section
+          aria-label="Provide a document"
+          className="mt-10 rounded-xl border border-line bg-white p-6"
+        >
+          <div role="tablist" aria-label="Input method" className="mb-4 flex gap-2 text-sm">
+            <button
+              role="tab"
+              aria-selected={mode === "file"}
+              onClick={() => setMode("file")}
+              className={`rounded-lg px-3 py-1.5 font-medium ${mode === "file" ? "bg-accent text-white" : "bg-slate-100 text-slate-700"}`}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              Upload a file
+            </button>
+            <button
+              role="tab"
+              aria-selected={mode === "text"}
+              onClick={() => setMode("text")}
+              className={`rounded-lg px-3 py-1.5 font-medium ${mode === "text" ? "bg-accent text-white" : "bg-slate-100 text-slate-700"}`}
             >
-              Learning
-            </a>{" "}
-            center.
+              Paste text
+            </button>
+          </div>
+
+          {mode === "file" ? (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                  setFileName(file.name);
+                  analyze(file, "");
+                }
+              }}
+              className={`rounded-lg border-2 border-dashed p-8 text-center ${dragging ? "border-accent bg-blue-50" : "border-line"}`}
+            >
+              <p className="text-sm">
+                Drag a document here, or{" "}
+                <button
+                  type="button"
+                  onClick={() => fileInput.current?.click()}
+                  className="font-medium text-accent underline"
+                >
+                  browse files
+                </button>
+                .
+              </p>
+              <p className="mt-1 text-xs text-muted">PDF, DOCX, or TXT — up to 5 MB</p>
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".pdf,.docx,.txt,.md"
+                className="sr-only"
+                aria-label="Choose a document file"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (file) {
+                    setFileName(file.name);
+                    analyze(file, "");
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <label htmlFor="doc-text" className="block text-sm font-medium">
+                Paste the document text
+              </label>
+              <textarea
+                id="doc-text"
+                rows={8}
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+                placeholder="Paste a lease, contract, terms of service…"
+                className="w-full rounded-lg border border-line px-3 py-2 text-sm"
+              />
+              <button
+                onClick={() => analyze(null, pasted)}
+                disabled={pasted.trim().length < 200 || phase === "analyzing"}
+                className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {phase === "analyzing" ? "Reading the fine print…" : "Analyze document"}
+              </button>
+              {pasted.trim().length > 0 && pasted.trim().length < 200 && (
+                <p className="text-xs text-muted">
+                  {(200 - pasted.trim().length).toLocaleString()} more characters needed.
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="mt-4 text-center text-xs text-muted">
+            First time here?{" "}
+            <button
+              type="button"
+              className="font-medium text-accent underline"
+              onClick={() => {
+                setMode("text");
+                setPasted(SAMPLE_LEASE);
+              }}
+            >
+              Load a sample lease
+            </button>
+          </p>
+
+          {phase === "analyzing" && (
+            <p role="status" aria-live="polite" className="mt-4 text-center text-sm text-muted">
+              Reading the fine print… this usually takes under a minute.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="mt-4 rounded bg-red-50 px-3 py-2 text-center text-sm text-red-800">
+              {error}
+            </p>
+          )}
+        </section>
+      )}
+
+      {phase === "done" && analysis && (
+        <div className="space-y-10">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <p className="text-muted">
+              {fileName ? (
+                <>Analyzed: <span className="font-medium text-ink">{fileName}</span></>
+              ) : (
+                "Analyzed your document"
+              )}
+            </p>
+            <button
+              onClick={() => {
+                setPhase("idle");
+                setAnalysis(null);
+                setFileName(null);
+                setPasted("");
+                setError(null);
+              }}
+              className="rounded-lg border border-line px-3 py-1.5 font-medium"
+            >
+              Analyze another document
+            </button>
+          </div>
+          {truncated && (
+            <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              This document is long — the analysis covers the first ~120,000 characters.
+            </p>
+          )}
+          <AnalysisView analysis={analysis} />
+          <AskPanel documentText={docText} />
+          <p className="rounded-lg border border-line bg-white p-4 text-xs leading-relaxed text-muted">
+            <strong className="text-ink">Not legal advice.</strong> Legible provides
+            informational assistance to help you read and understand documents. It does not
+            replace advice from a qualified legal professional, and it may miss issues or
+            misread passages. Always consult a licensed professional before making legal
+            decisions. Your document is analyzed in memory and is not stored.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      )}
+
+      {phase !== "done" && (
+        <p className="mt-6 text-center text-xs leading-relaxed text-muted">
+          Informational assistance only — Legible is not a lawyer and does not provide legal
+          advice. Documents are analyzed in memory and never stored.
+        </p>
+      )}
+    </main>
   );
 }
