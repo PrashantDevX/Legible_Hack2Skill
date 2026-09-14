@@ -79,6 +79,25 @@ describe("verifyQuotes (grounding check)", () => {
   it("rejects empty quotes", () => {
     expect(verifyQuotes(source, [""])).toEqual([false]);
   });
+
+  it("accepts abbreviated quotes joined by ellipses when every fragment is present", () => {
+    expect(
+      verifyQuotes(source, ["The Tenant shall pay rent…of each month."]),
+    ).toEqual([true]);
+    expect(
+      verifyQuotes(source, ["The Tenant shall pay rent ... of each month."]),
+    ).toEqual([true]);
+  });
+
+  it("rejects ellipsis quotes when any fragment is missing", () => {
+    expect(verifyQuotes(source, ["The Tenant shall pay rent…$1,000,000 bonus"])).toEqual([
+      false,
+    ]);
+  });
+
+  it("rejects an ellipsis-only quote", () => {
+    expect(verifyQuotes(source, ["…", "..."])).toEqual([false, false]);
+  });
 });
 
 describe("AskRequestSchema", () => {

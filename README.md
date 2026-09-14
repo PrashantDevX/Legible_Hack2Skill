@@ -22,7 +22,7 @@ Upload (PDF / DOCX / TXT) or paste text
    ↓  validated, extracted, normalized, capped
 ONE structured AI analysis
    ↓
-Consultation-ready brief
+Consultation-ready brief — saved to this browser's history
    ├── Plain summary: what am I being asked to agree to?
    ├── Key clauses — each with a verbatim quote
    ├── Obligations: what must I do / what do I get?
@@ -38,12 +38,12 @@ Grounded follow-up Q&A — answers only from the document,
 
 ## GenAI architecture
 
-- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.5-flash` by default (override with `GEMINI_MODEL`); runs on the free tier
+- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.5-flash-lite` by default (500 requests/day on the free tier; override with `GEMINI_MODEL`)
 - **Structured output:** each analysis is **one** `interactions.create` call with `response_format: { type: "text", mime_type: "application/json", schema }`, where the schema is our Zod schema converted to JSON Schema. One call produces summary, clauses, obligations, concerns, questions, and steps — no per-section calls.
 - **Validation:** Gemini enforces the JSON schema; the response is then **re-validated with Zod** before anything reaches the UI. Unparseable or schema-invalid output returns a clean error; SDK errors (`ApiError`) are mapped to safe messages (rate limit, auth, 5xx). Malformed AI output can never crash the app.
 - **Grounding:** beyond schema validation, every returned quote is checked against the extracted text (`verifyQuotes`, whitespace-normalized substring match). The UI distinguishes verified quotes from AI paraphrases.
 - **Document processing:** PDF via `pdf-parse`, DOCX via `mammoth`, TXT read directly. Text is normalized (line endings, blank lines) and capped at 120,000 characters to bound cost and latency per request.
-- **Privacy:** `store: false` on every model call — requests and responses are not retained on Google's side.
+- **Privacy:** `store: false` on every model call — requests and responses are not retained on Google's side. Analyzed documents and their briefs are saved only to the user's own browser (localStorage) so the history survives a refresh; nothing is written to any server, and each entry can be deleted from the documents list.
 - **Prompt-injection defense:** document text is wrapped in `<document>` tags and the system instruction tells the model to treat it strictly as untrusted data — instructions inside a document ("ignore previous instructions…") are ignored and analyzed as text. Both defenses are pinned by tests.
 
 ## Technology stack
@@ -58,7 +58,7 @@ Every dependency earns its place; there is no database, no vector store, and no 
 - **File validation:** extension allow-list (PDF/DOCX/TXT/MD), 5 MB cap, empty-file rejection — all *before* parsing.
 - **Input validation:** all request payloads parsed with Zod (question length, history cap, document size); text paths enforce a 200-character minimum so no AI call is made without meaningful input.
 - **Prompt injection:** documents are untrusted data (see GenAI architecture).
-- **Privacy:** no database, no file storage, no logging of document content. Documents live in request memory only; the extracted text is returned to the same client that uploaded it so follow-up questions can be grounded.
+- **Privacy:** no database, no file storage, no logging of document content. Documents live in request memory only; the extracted text is returned to the same client that uploaded it so follow-up questions can be grounded. Saved history is browser-local, capped at 20 documents, and best-effort — if storage is blocked the app still works.
 - **Safe errors:** API failures map to short user-facing messages; internals are never leaked.
 
 ## Efficiency
@@ -72,17 +72,18 @@ Every dependency earns its place; there is no database, no vector store, and no 
 
 ## Testing
 
-`npm test` — 17 unit tests (Vitest) covering the highest-risk logic:
+`npm test` — 25 unit tests (Vitest) covering the highest-risk logic:
 
 - File validation: allowed types, rejected extensions, oversized and empty files
 - Text normalization and the truncation path for oversized documents
-- The grounding check: exact, whitespace-variant, absent, and empty quotes
+- The grounding check: exact, whitespace-variant, ellipsis-abbreviated, absent, and empty quotes
 - Request schema: valid, empty, too-short, oversized, and over-history requests
+- Local history: round-trip, newest-first ordering, 20-entry cap, deletion, corrupt/blocked storage fallback
 - Prompt-injection defenses: `<document>` delimiters and the untrusted-data instructions in both system prompts
 
 ## Accessibility
 
-Semantic HTML with labeled regions and headings; `sr-only` labels on icon-only inputs; `role="status"`/`role="alert"` live regions for loading and errors; visible focus outlines on all interactive elements; ARIA tabs for input mode; responsive single-column layout that works at phone width; plain language throughout.
+Semantic HTML with labeled regions and headings; `sr-only` labels on icon-only inputs; `role="status"`/`role="alert"` live regions for loading and errors; visible focus outlines on all interactive elements; `aria-pressed` toggle buttons for input mode; responsive single-column layout that works at phone width; plain language throughout. A dark theme is available via the header toggle (choice is remembered; defaults to the system preference, applied before first paint), and all colors meet contrast requirements in both themes.
 
 ## Setup
 
@@ -97,7 +98,7 @@ npm run dev            # http://localhost:3000
 | Variable | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | yes | Gemini API key, server-side only |
-| `GEMINI_MODEL` | no | Model override (default `gemini-3.5-flash`) |
+| `GEMINI_MODEL` | no | Model override (default `gemini-3.5-flash-lite`) |
 
 ## Deployment
 

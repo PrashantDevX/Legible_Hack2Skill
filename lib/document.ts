@@ -94,7 +94,13 @@ export function normalizeForMatch(text: string): string {
 export function verifyQuotes(source: string, quotes: string[]): boolean[] {
   const haystack = normalizeForMatch(source);
   return quotes.map((q) => {
-    const needle = normalizeForMatch(q);
-    return needle.length > 0 && haystack.includes(needle);
+    // Models often abbreviate long passages with "..." — verify each fragment
+    // between ellipses rather than the whole string, so an abbreviated (but
+    // genuine) passage still counts as verified.
+    const fragments = normalizeForMatch(q)
+      .split(/(?:\.{3}|…)+/)
+      .map((fragment) => fragment.trim())
+      .filter(Boolean);
+    return fragments.length > 0 && fragments.every((f) => haystack.includes(f));
   });
 }

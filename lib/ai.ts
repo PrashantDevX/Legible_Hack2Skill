@@ -9,7 +9,7 @@ import {
 } from "./schemas";
 import { ANALYSIS_SYSTEM_PROMPT, ASK_SYSTEM_PROMPT, documentBlock } from "./prompts";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 const client = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -52,7 +52,7 @@ function toAiError(error: unknown): AiError {
   if (typeof status === "number") {
     if (status === 429) {
       return new AiError(
-        "The AI service's free-tier rate limit was hit — either too many requests in a minute, or the daily cap (20 requests per model) is exhausted, which resets at midnight Pacific time. Please try again later.",
+        "The AI service's free-tier rate limit was hit — either too many requests in a minute, or the model's daily request cap is exhausted, which resets at midnight Pacific time. Please try again later.",
         429,
       );
     }

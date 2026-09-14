@@ -10,17 +10,16 @@ export function AnalysisView({ analysis }: { analysis: VerifiedAnalysis }) {
   return (
     <div className="space-y-10">
       <header>
-        <p className="text-xs font-semibold tracking-wide text-muted uppercase">
-          This appears to be
-        </p>
-        <h1 className="mt-1 text-2xl font-bold text-ink">{analysis.documentType}</h1>
-        <p className="mt-3 leading-relaxed">{analysis.plainSummary}</p>
+        <h2 className="text-sm font-semibold tracking-wide text-muted uppercase">
+          Plain summary
+        </h2>
+        <p className="mt-2 leading-relaxed">{analysis.plainSummary}</p>
       </header>
 
       <Section title="Key clauses" count={analysis.keyClauses.length}>
         <div className="grid gap-4 sm:grid-cols-2">
           {analysis.keyClauses.map((clause, i) => (
-            <article key={i} className="rounded-lg border border-line bg-white p-4">
+            <article key={i} className="rounded-lg border border-line bg-surface p-4">
               <h3 className="font-semibold text-ink">{clause.title}</h3>
               <p className="mt-1 text-sm leading-relaxed">{clause.plainExplanation}</p>
               <QuoteBlock quote={clause.quote} verified={proof.clauses[i]} />
@@ -32,7 +31,7 @@ export function AnalysisView({ analysis }: { analysis: VerifiedAnalysis }) {
       <Section title="What you're agreeing to" count={analysis.obligations.length}>
         <ul className="space-y-3">
           {analysis.obligations.map((item, i) => (
-            <li key={i} className="rounded-lg border border-line bg-white p-4">
+            <li key={i} className="rounded-lg border border-line bg-surface p-4">
               <p className="text-sm leading-relaxed">{item.obligation}</p>
               <QuoteBlock quote={item.quote} verified={proof.obligations[i]} />
             </li>
@@ -49,7 +48,7 @@ export function AnalysisView({ analysis }: { analysis: VerifiedAnalysis }) {
         ) : (
           <ul className="space-y-3">
             {analysis.concerns.map((concern, i) => (
-              <li key={i} className="rounded-lg border border-line bg-white p-4">
+              <li key={i} className="rounded-lg border border-line bg-surface p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold text-ink">{concern.title}</h3>
                   <SeverityChip severity={concern.severity} />
@@ -65,7 +64,7 @@ export function AnalysisView({ analysis }: { analysis: VerifiedAnalysis }) {
       <Section title="Questions to ask a lawyer" count={analysis.questionsForLawyer.length}>
         <ol className="space-y-2">
           {analysis.questionsForLawyer.map((question, i) => (
-            <li key={i} className="flex gap-3 rounded-lg border border-line bg-white p-4 text-sm leading-relaxed">
+            <li key={i} className="flex gap-3 rounded-lg border border-line bg-surface p-4 text-sm leading-relaxed">
               <span aria-hidden className="font-semibold text-accent">{i + 1}.</span>
               {question}
             </li>
@@ -76,7 +75,7 @@ export function AnalysisView({ analysis }: { analysis: VerifiedAnalysis }) {
       <Section title="Possible next steps" count={analysis.nextSteps.length}>
         <ul className="space-y-2">
           {analysis.nextSteps.map((step, i) => (
-            <li key={i} className="rounded-lg border border-line bg-white p-4 text-sm leading-relaxed">
+            <li key={i} className="rounded-lg border border-line bg-surface p-4 text-sm leading-relaxed">
               {step}
             </li>
           ))}

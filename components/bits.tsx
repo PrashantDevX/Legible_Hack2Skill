@@ -9,9 +9,9 @@ export function QuoteBlock({ quote, verified }: { quote: string; verified: boole
       </blockquote>
       <figcaption className="mt-1 text-xs">
         {verified ? (
-          <span className="text-emerald-700">✓ Verified — appears in your document</span>
+          <span className="text-ok">✓ Verified — appears in your document</span>
         ) : (
-          <span className="text-amber-700">Not found word-for-word — AI paraphrase, treat with care</span>
+          <span className="text-warn">Not found word-for-word — AI paraphrase, treat with care</span>
         )}
       </figcaption>
     </figure>
@@ -19,9 +19,9 @@ export function QuoteBlock({ quote, verified }: { quote: string; verified: boole
 }
 
 const SEVERITY_STYLES: Record<Severity, string> = {
-  high: "bg-red-100 text-red-900",
-  medium: "bg-amber-100 text-amber-900",
-  low: "bg-slate-200 text-slate-800",
+  high: "bg-danger-soft text-danger",
+  medium: "bg-warn-soft text-warn",
+  low: "bg-soft text-muted",
 };
 
 export function SeverityChip({ severity }: { severity: Severity }) {

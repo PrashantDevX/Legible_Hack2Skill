@@ -2,26 +2,62 @@
 
 :root {
   --background: #f8f7f4;
-  --foreground: #1c2430;
+  --surface: #ffffff;
   --ink: #1c2430;
   --muted: #5b6472;
   --accent: #1d4ed8;
+  --on-accent: #ffffff;
+  --accent-soft: #e9effc;
   --line: #e3e0d8;
+  --soft: #ecebe6;
+  --ok: #047857;
+  --ok-soft: #e5f5ec;
+  --warn: #92400e;
+  --warn-soft: #fbf0dd;
+  --danger: #b91c1c;
+  --danger-soft: #fdeaea;
+}
+
+[data-theme="dark"] {
+  --background: #14171d;
+  --surface: #1d212a;
+  --ink: #e8e6e1;
+  --muted: #9aa3b2;
+  --accent: #7fb3ff;
+  --on-accent: #0d1524;
+  --accent-soft: #1d2b45;
+  --line: #2d3340;
+  --soft: #262b35;
+  --ok: #6fd6a3;
+  --ok-soft: #18301f;
+  --warn: #e3b96a;
+  --warn-soft: #33290f;
+  --danger: #f0a1a1;
+  --danger-soft: #3a1d1d;
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
   --color-line: var(--line);
+  --color-soft: var(--soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
   --font-sans: var(--font-geist-sans);
 }
 
 body {
   background: var(--background);
-  color: var(--foreground);
+  color: var(--ink);
 }
 
 /* Visible focus for keyboard users on every interactive element. */
