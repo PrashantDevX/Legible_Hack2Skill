@@ -64,6 +64,7 @@ Every dependency earns its place; there is no database, no vector store, and no 
 ## Efficiency
 
 - **One model call per analysis** — summary, clauses, obligations, concerns, questions, and steps come from a single structured response, not six calls.
+- **One user action = exactly one API call** — the SDK's default 5-attempt retry loop is disabled; a failed request surfaces immediately as a clean message instead of silently re-billing input tokens.
 - **No AI call without meaningful input** — a 200-character minimum on all input paths.
 - **Bounded context** — extracted text is capped at 120,000 characters per request.
 - **No duplicate work** — extraction happens once per document; Q&A reuses the client-held text; there is no polling or background processing.

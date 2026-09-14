@@ -11,7 +11,14 @@ import { ANALYSIS_SYSTEM_PROMPT, ASK_SYSTEM_PROMPT, documentBlock } from "./prom
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 
-const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const client = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  // The SDK defaults to 5 attempts on 429/5xx. Retrying a spent daily quota
+  // just hammers the API (a wall of 429s), and retrying a mid-generation 5xx
+  // re-bills the full input tokens each time. One user action = one call;
+  // errors surface immediately as clean messages instead.
+  httpOptions: { retryOptions: { attempts: 1 } },
+});
 
 export class AiError extends Error {
   constructor(
@@ -45,7 +52,7 @@ function toAiError(error: unknown): AiError {
   if (typeof status === "number") {
     if (status === 429) {
       return new AiError(
-        "The AI service is rate-limited right now (free-tier quota). Please wait a minute and try again.",
+        "The AI service's free-tier rate limit was hit — either too many requests in a minute, or the daily cap (20 requests per model) is exhausted, which resets at midnight Pacific time. Please try again later.",
         429,
       );
     }
