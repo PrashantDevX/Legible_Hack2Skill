@@ -38,17 +38,17 @@ Grounded follow-up Q&A — answers only from the document,
 
 ## GenAI architecture
 
-- **Provider:** Anthropic — Claude API (`claude-opus-5` by default, override with `CLAUDE_MODEL`)
-- **Structured output:** each analysis is **one** API call via `client.messages.parse()` with a Zod schema (`output_config.format`). One call produces summary, clauses, obligations, concerns, questions, and steps — no per-section calls.
-- **Validation:** the schema constrains the model *and* validates the response. `parsed_output` is null-checked; SDK errors are mapped to safe messages (rate limit, auth, 5xx, connection). Malformed AI output can never crash the app.
+- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.8-flash` by default (override with `GEMINI_MODEL`); runs on the free tier
+- **Structured output:** each analysis is **one** `interactions.create` call with `response_format: { type: "text", mime_type: "application/json", schema }`, where the schema is our Zod schema converted to JSON Schema. One call produces summary, clauses, obligations, concerns, questions, and steps — no per-section calls.
+- **Validation:** Gemini enforces the JSON schema; the response is then **re-validated with Zod** before anything reaches the UI. Unparseable or schema-invalid output returns a clean error; SDK errors (`ApiError`) are mapped to safe messages (rate limit, auth, 5xx). Malformed AI output can never crash the app.
 - **Grounding:** beyond schema validation, every returned quote is checked against the extracted text (`verifyQuotes`, whitespace-normalized substring match). The UI distinguishes verified quotes from AI paraphrases.
-- **Document processing:** PDF via `pdf-parse`, DOCX via `mammoth`, TXT read directly. Text is normalized (line endings, blank lines) and capped at 120,000 characters (~30K tokens) to bound cost per request.
-- **Efficiency (Q&A):** the document sits in a `cache_control: ephemeral` system block, so follow-up questions read it from the prompt cache instead of re-billing full input.
-- **Prompt-injection defense:** document text is wrapped in `<document>` tags and the system prompt instructs the model to treat it strictly as untrusted data — instructions inside a document ("ignore previous instructions…") are ignored and analyzed as text. Both defenses are pinned by tests.
+- **Document processing:** PDF via `pdf-parse`, DOCX via `mammoth`, TXT read directly. Text is normalized (line endings, blank lines) and capped at 120,000 characters to bound cost and latency per request.
+- **Privacy:** `store: false` on every model call — requests and responses are not retained on Google's side.
+- **Prompt-injection defense:** document text is wrapped in `<document>` tags and the system instruction tells the model to treat it strictly as untrusted data — instructions inside a document ("ignore previous instructions…") are ignored and analyzed as text. Both defenses are pinned by tests.
 
 ## Technology stack
 
-Next.js (App Router) · TypeScript · React · Tailwind CSS v4 · `@anthropic-ai/sdk` · Zod · `pdf-parse` · `mammoth` · Vitest
+Next.js (App Router) · TypeScript · React · Tailwind CSS v4 · `@google/genai` · Zod · `pdf-parse` · `mammoth` · Vitest
 
 Every dependency earns its place; there is no database, no vector store, and no additional service. Extracted-document analysis at this size does not need retrieval infrastructure.
 
@@ -60,6 +60,14 @@ Every dependency earns its place; there is no database, no vector store, and no 
 - **Prompt injection:** documents are untrusted data (see GenAI architecture).
 - **Privacy:** no database, no file storage, no logging of document content. Documents live in request memory only; the extracted text is returned to the same client that uploaded it so follow-up questions can be grounded.
 - **Safe errors:** API failures map to short user-facing messages; internals are never leaked.
+
+## Efficiency
+
+- **One model call per analysis** — summary, clauses, obligations, concerns, questions, and steps come from a single structured response, not six calls.
+- **No AI call without meaningful input** — a 200-character minimum on all input paths.
+- **Bounded context** — extracted text is capped at 120,000 characters per request.
+- **No duplicate work** — extraction happens once per document; Q&A reuses the client-held text; there is no polling or background processing.
+- **Minimal footprint** — no database, no vector store, six runtime dependencies.
 
 ## Testing
 
@@ -79,7 +87,7 @@ Semantic HTML with labeled regions and headings; `sr-only` labels on icon-only i
 
 ```bash
 npm install
-cp .env.example .env   # then set ANTHROPIC_API_KEY
+cp .env.example .env   # then set GEMINI_API_KEY (free at aistudio.google.com/apikey)
 npm run dev            # http://localhost:3000
 ```
 
@@ -87,12 +95,12 @@ npm run dev            # http://localhost:3000
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | yes | Anthropic API key, server-side only |
-| `CLAUDE_MODEL` | no | Model override (default `claude-opus-5`) |
+| `GEMINI_API_KEY` | yes | Gemini API key, server-side only |
+| `GEMINI_MODEL` | no | Model override (default `gemini-3.8-flash`) |
 
 ## Deployment
 
-Any Node host. On Vercel: import the repo, set `ANTHROPIC_API_KEY` (and optionally `CLAUDE_MODEL`) as environment variables, deploy. No other infrastructure is needed.
+Any Node host. On Vercel: import the repo, set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) as environment variables, deploy. No other infrastructure is needed.
 
 ```
 npm run build   # production build
