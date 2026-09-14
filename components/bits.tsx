@@ -32,6 +32,44 @@ export function SeverityChip({ severity }: { severity: Severity }) {
   );
 }
 
+/** Collapsible evidence: source location, page (when the PDF provides one),
+ *  excerpt, and why it matters — keeps the page scannable by default. */
+export function EvidenceBlock({
+  quote,
+  verified,
+  page,
+  location,
+  explanation,
+  label = "Why was this flagged?",
+}: {
+  quote: string;
+  verified: boolean | undefined;
+  page?: number | null;
+  location?: string;
+  explanation?: string;
+  label?: string;
+}) {
+  return (
+    <details className="mt-2 rounded-lg bg-soft px-3 py-2 text-sm">
+      <summary className="cursor-pointer list-none text-xs font-medium text-accent">
+        {label}
+        {verified !== undefined && (verified ? " · ✓ verified" : " · unverified excerpt")}
+      </summary>
+      <div className="mt-2 space-y-2">
+        {(location || page) && (
+          <p className="text-xs text-muted">
+            {[location, page ? `Page ${page}` : null].filter(Boolean).join(" · ")}
+          </p>
+        )}
+        <blockquote className="border-l-2 border-line pl-3 text-sm text-muted italic">
+          &ldquo;{quote}&rdquo;
+        </blockquote>
+        {explanation && <p className="text-xs leading-relaxed text-muted">{explanation}</p>}
+      </div>
+    </details>
+  );
+}
+
 export function Section({
   title,
   count,

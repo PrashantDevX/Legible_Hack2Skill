@@ -104,3 +104,31 @@ export function verifyQuotes(source: string, quotes: string[]): boolean[] {
     return fragments.length > 0 && fragments.every((f) => haystack.includes(f));
   });
 }
+
+/**
+ * Page numbers for quotes, from the page markers ("-- 2 of 5 --") the PDF
+ * extractor appends after each page's text. Returns null per quote when the
+ * source has no page markers (pasted text, DOCX) or the quote isn't found —
+ * we never guess a page number.
+ */
+export function findPages(source: string, quotes: string[]): (number | null)[] {
+  const normalized = normalizeForMatch(source);
+  const markers = [...normalized.matchAll(/--\s*(\d+)\s+of\s+\d+\s*--/g)].map((m) => ({
+    page: Number(m[1]),
+    end: (m.index ?? 0) + m[0].length,
+  }));
+  if (markers.length === 0) return quotes.map(() => null);
+  return quotes.map((q) => {
+    // Locate by the quote's first ellipsis-free fragment (abbreviated quotes
+    // are not contiguous in the source).
+    const first = normalizeForMatch(q)
+      .split(/(?:\.{3}|…)+/)[0]
+      .trim();
+    const at = first ? normalized.indexOf(first) : -1;
+    if (at === -1) return null;
+    // A page's text precedes its marker, so the quote belongs to the first
+    // marker at or after its position.
+    const marker = markers.find((m) => m.end > at);
+    return marker ? marker.page : null;
+  });
+}

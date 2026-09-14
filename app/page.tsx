@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnalysisView } from "@/components/analysis-view";
 import { AskPanel } from "@/components/ask-panel";
+import { ScenarioPanel } from "@/components/scenario-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SAMPLE_LEASE } from "@/lib/sample";
 import type { VerifiedAnalysis } from "@/lib/schemas";
@@ -269,6 +270,10 @@ export default function Home() {
 
             <AnalysisView analysis={open.analysis} />
             <AskPanel documentText={open.docText} />
+            <ScenarioPanel
+              documentText={open.docText}
+              examples={open.analysis.suggestedScenarios ?? []}
+            />
 
             <p className="rounded-lg border border-line bg-surface p-4 text-xs leading-relaxed text-muted">
               <strong className="text-ink">Not legal advice.</strong> Legible provides

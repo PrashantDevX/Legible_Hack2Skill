@@ -25,6 +25,12 @@ This Residential Lease Agreement ("Lease") is entered into on March 1, 2026, bet
 
 10. HOLD OVER. If Tenant remains in possession after expiration of this Lease without Landlord's written consent, Tenant shall pay double the monthly rent for each month or partial month of holdover.
 
-11. ENTIRE AGREEMENT. This Lease constitutes the entire agreement between the parties. No oral representations modify its terms.
+11. ENTIRE AGREEMENT. This Lease constitutes the entire agreement between the parties. No oral representations modify its terms. The premises are rented together with the items listed in the Inventory Checklist attached as Exhibit A.
 
-IN WITNESS WHEREOF, the parties have executed this Lease as of the date first written above.`;
+IN WITNESS WHEREOF, the parties have executed this Lease as of the date first written above.
+
+LANDLORD: Northgate Properties LLC
+
+By: ______________________________    Date: ______________
+
+TENANT: ____________________________    Date: ______________`;

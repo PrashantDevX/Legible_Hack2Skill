@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeDocument, AiError } from "@/lib/ai";
-import { DocumentError, extractText, validateFile } from "@/lib/document";
-import { verifyQuotes } from "@/lib/document";
-import type { Analysis } from "@/lib/schemas";
+import { DocumentError, extractText, findPages, validateFile, verifyQuotes } from "@/lib/document";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -38,15 +36,25 @@ export async function POST(request: NextRequest) {
     const analysis = await analyzeDocument(text);
 
     // Grounding: verify every quote the model returned actually appears in
-    // the document, so the UI can distinguish verified from unverified items.
-    const analysisWithProof: Analysis & {
-      quotesVerified: { clauses: boolean[]; obligations: boolean[]; concerns: boolean[] };
-    } = {
+    // the document, and locate it on a page when the extraction produced
+    // page markers — so the UI can distinguish verified from unverified items.
+    const evidence = {
+      clauses: verifyQuotes(text, analysis.keyClauses.map((c) => c.quote)),
+      obligations: verifyQuotes(text, analysis.obligations.map((o) => o.quote)),
+      concerns: verifyQuotes(text, analysis.concerns.map((c) => c.quote)),
+    };
+    const asymmetrySources = analysis.partyAsymmetries.flatMap((a) => [a.sourceA, a.sourceB]);
+    const analysisWithProof = {
       ...analysis,
-      quotesVerified: {
-        clauses: verifyQuotes(text, analysis.keyClauses.map((c) => c.quote)),
-        obligations: verifyQuotes(text, analysis.obligations.map((o) => o.quote)),
-        concerns: verifyQuotes(text, analysis.concerns.map((c) => c.quote)),
+      quotesVerified: evidence,
+      missingVerified: verifyQuotes(text, analysis.missingInformation.map((m) => m.source)),
+      asymmetriesVerified: verifyQuotes(text, asymmetrySources),
+      pages: {
+        clauses: findPages(text, analysis.keyClauses.map((c) => c.quote)),
+        obligations: findPages(text, analysis.obligations.map((o) => o.quote)),
+        concerns: findPages(text, analysis.concerns.map((c) => c.quote)),
+        missing: findPages(text, analysis.missingInformation.map((m) => m.source)),
+        asymmetries: findPages(text, asymmetrySources),
       },
     };
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { askQuestion, AiError } from "@/lib/ai";
-import { verifyQuotes } from "@/lib/document";
-import { AskRequestSchema } from "@/lib/schemas";
+import { findPages, verifyQuotes } from "@/lib/document";
+import { AskRequestSchema, type Answer, type Scenario } from "@/lib/schemas";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,12 +18,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const answer = await askQuestion(parsed.data);
+    const result = await askQuestion(parsed.data);
+
+    if (parsed.data.mode === "scenario") {
+      const scenario = result as Scenario;
+      return NextResponse.json({
+        answer: {
+          ...scenario,
+          sourceVerified: verifyQuotes(parsed.data.documentText, [scenario.source])[0],
+          page: findPages(parsed.data.documentText, [scenario.source])[0],
+        },
+      });
+    }
+
+    const answer = result as Answer;
     const quotesVerified = verifyQuotes(
       parsed.data.documentText,
       answer.supportingQuotes.map((q) => q.quote),
     );
-
     return NextResponse.json({ answer: { ...answer, quotesVerified } });
   } catch (error) {
     if (error instanceof AiError) {

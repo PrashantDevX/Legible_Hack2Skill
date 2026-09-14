@@ -3,11 +3,18 @@ import { z } from "zod";
 import {
   AnalysisSchema,
   AnswerSchema,
+  ScenarioSchema,
   type Analysis,
   type Answer,
   type AskRequest,
+  type Scenario,
 } from "./schemas";
-import { ANALYSIS_SYSTEM_PROMPT, ASK_SYSTEM_PROMPT, documentBlock } from "./prompts";
+import {
+  ANALYSIS_SYSTEM_PROMPT,
+  ASK_SYSTEM_PROMPT,
+  SCENARIO_SYSTEM_PROMPT,
+  documentBlock,
+} from "./prompts";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
@@ -56,7 +63,8 @@ function toAiError(error: unknown): AiError {
         429,
       );
     }
-    if (status === 401 || status === 403) {
+    if (status === 400 || status === 401 || status === 403) {
+      // 400 is typically an invalid API key (the SDK reports it that way).
       return new AiError("The AI service is not configured correctly on the server.", 500);
     }
     if (status >= 500) {
@@ -108,17 +116,23 @@ export function analyzeDocument(documentText: string): Promise<Analysis> {
   return generateStructured(ANALYSIS_SYSTEM_PROMPT, documentBlock(documentText), AnalysisSchema);
 }
 
-/** Grounded Q&A: answer only from the document, with verbatim supporting quotes. */
-export function askQuestion(request: AskRequest): Promise<Answer> {
+/**
+ * Grounded follow-up: a direct question or a "what if?" scenario, each one
+ * focused call reusing the already-extracted document text.
+ */
+export function askQuestion(request: AskRequest): Promise<Answer | Scenario> {
+  const input = [documentBlock(request.documentText), `Question: ${request.question}`]
+    .filter(Boolean)
+    .join("\n\n");
+  if (request.mode === "scenario") {
+    return generateStructured(SCENARIO_SYSTEM_PROMPT, input, ScenarioSchema);
+  }
   const history = request.history
     .map((turn) => `Reader previously asked: ${turn.question}\nYou answered: ${turn.answer}`)
     .join("\n\n");
-  const input = [
-    history,
-    documentBlock(request.documentText),
-    `Question: ${request.question}`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  return generateStructured(ASK_SYSTEM_PROMPT, input, AnswerSchema);
+  return generateStructured(
+    ASK_SYSTEM_PROMPT,
+    [history, input].filter(Boolean).join("\n\n"),
+    AnswerSchema,
+  );
 }
