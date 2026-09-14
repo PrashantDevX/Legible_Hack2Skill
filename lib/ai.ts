@@ -1,4 +1,4 @@
-import { ApiError, GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import {
   AnalysisSchema,
@@ -9,7 +9,7 @@ import {
 } from "./schemas";
 import { ANALYSIS_SYSTEM_PROMPT, ASK_SYSTEM_PROMPT, documentBlock } from "./prompts";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -29,16 +29,30 @@ function toGeminiSchema(schema: z.ZodType): Record<string, unknown> {
   return json;
 }
 
-/** Map SDK errors to safe, user-facing messages (no internal detail leaks). */
+/**
+ * Map SDK errors to safe, user-facing messages (no internal detail leaks).
+ * Narrows structurally on `status` rather than instanceof ApiError — the SDK
+ * ships dual ESM/CJS builds, so the thrown class and the imported one can be
+ * different identities under the server bundler.
+ */
 function toAiError(error: unknown): AiError {
-  if (error instanceof ApiError) {
-    if (error.status === 429) {
-      return new AiError("The service is busy right now. Please try again in a moment.", 429);
+  const status = (error as { status?: unknown } | null | undefined)?.status;
+  // SDK error messages carry status/quota detail only — never document content.
+  console.error(
+    `ai error (${typeof status === "number" ? status : "unknown"}):`,
+    error instanceof Error ? error.message : error,
+  );
+  if (typeof status === "number") {
+    if (status === 429) {
+      return new AiError(
+        "The AI service is rate-limited right now (free-tier quota). Please wait a minute and try again.",
+        429,
+      );
     }
-    if (error.status === 401 || error.status === 403) {
+    if (status === 401 || status === 403) {
       return new AiError("The AI service is not configured correctly on the server.", 500);
     }
-    if (error.status >= 500) {
+    if (status >= 500) {
       return new AiError("The AI service is temporarily unavailable. Please try again.", 502);
     }
   }

@@ -38,7 +38,7 @@ Grounded follow-up Q&A — answers only from the document,
 
 ## GenAI architecture
 
-- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.8-flash` by default (override with `GEMINI_MODEL`); runs on the free tier
+- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.5-flash` by default (override with `GEMINI_MODEL`); runs on the free tier
 - **Structured output:** each analysis is **one** `interactions.create` call with `response_format: { type: "text", mime_type: "application/json", schema }`, where the schema is our Zod schema converted to JSON Schema. One call produces summary, clauses, obligations, concerns, questions, and steps — no per-section calls.
 - **Validation:** Gemini enforces the JSON schema; the response is then **re-validated with Zod** before anything reaches the UI. Unparseable or schema-invalid output returns a clean error; SDK errors (`ApiError`) are mapped to safe messages (rate limit, auth, 5xx). Malformed AI output can never crash the app.
 - **Grounding:** beyond schema validation, every returned quote is checked against the extracted text (`verifyQuotes`, whitespace-normalized substring match). The UI distinguishes verified quotes from AI paraphrases.
@@ -96,7 +96,7 @@ npm run dev            # http://localhost:3000
 | Variable | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | yes | Gemini API key, server-side only |
-| `GEMINI_MODEL` | no | Model override (default `gemini-3.8-flash`) |
+| `GEMINI_MODEL` | no | Model override (default `gemini-3.5-flash`) |
 
 ## Deployment
 
