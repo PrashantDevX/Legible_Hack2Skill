@@ -4,6 +4,7 @@ import {
   findPages,
   normalizeText,
   validateFile,
+  validateFileSignature,
   verifyQuotes,
   MAX_FILE_BYTES,
   MAX_TEXT_CHARS,
@@ -11,6 +12,7 @@ import {
 } from "../lib/document";
 import { AnalysisSchema, AskRequestSchema, ScenarioSchema } from "../lib/schemas";
 import { documentBlock } from "../lib/prompts";
+import { makeDocx } from "./helpers/minidocx";
 
 describe("validateFile", () => {
   it("accepts allowed types under the size limit", () => {
@@ -128,6 +130,56 @@ describe("findPages (evidence map)", () => {
   it("returns null when there are no page markers, or the quote is absent", () => {
     expect(findPages("no markers here", ["no markers"])).toEqual([null]);
     expect(findPages(paged, ["not in the document"])).toEqual([null]);
+  });
+});
+
+describe("file signature validation (magic bytes)", () => {
+  it("rejects a non-PDF file renamed to .pdf", async () => {
+    expect(() => validateFileSignature("fake.pdf", Buffer.from("MZ windows exe payload"))).toThrow(
+      DocumentError,
+    );
+    await expect(
+      extractText("fake.pdf", Buffer.from("this is definitely not a pdf")),
+    ).rejects.toThrow(DocumentError);
+  });
+
+  it("rejects a non-zip file renamed to .docx", () => {
+    expect(() => validateFileSignature("fake.docx", Buffer.from("plain text, not a zip"))).toThrow(
+      DocumentError,
+    );
+  });
+
+  it("accepts real PDF and DOCX signatures", () => {
+    expect(() => validateFileSignature("ok.pdf", Buffer.from("%PDF-1.7 rest"))).not.toThrow();
+    expect(() => validateFileSignature("ok.docx", Buffer.from("PK\x03\x04 rest"))).not.toThrow();
+  });
+});
+
+describe("extractText (docx path)", () => {
+  const paragraphs = [
+    "RESIDENTIAL LEASE AGREEMENT between Landlord and Tenant.",
+    "3. SECURITY DEPOSIT. Tenant shall deposit fifty thousand rupees as a security deposit.",
+    "Landlord shall return the deposit within sixty days after termination, less itemized deductions.",
+  ];
+
+  it("extracts text from a real (minimal) DOCX package", async () => {
+    const { text, truncated } = await extractText("lease.docx", makeDocx(paragraphs));
+    expect(text).toContain("SECURITY DEPOSIT");
+    expect(text).toContain("itemized deductions");
+    expect(truncated).toBe(false);
+  });
+
+  it("rejects a DOCX whose text is below the minimum length", async () => {
+    await expect(extractText("tiny.docx", makeDocx(["short"]))).rejects.toThrow(DocumentError);
+  });
+});
+
+describe("extractText (corrupt pdf path)", () => {
+  it("wraps parser failures as a clean DocumentError", async () => {
+    // Valid PDF signature, broken body.
+    await expect(extractText("broken.pdf", Buffer.from("%PDF-1.4\nthis is not really a pdf"))).rejects.toThrow(
+      /could not be read/i,
+    );
   });
 });
 

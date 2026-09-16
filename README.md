@@ -1,98 +1,125 @@
 # Legible
 
-**Understand any legal document before you sign it.** Legible turns a lease, employment contract, or agreement into a plain-language brief — key clauses, what you're agreeing to, possible concerns, and the exact questions to ask a lawyer — with every finding traced back to a quote from your own document.
+**From legal problem to prepared case.** Describe a legal problem in your own words — no legal terms needed — and Legible asks smart clarifying questions, organizes your facts into a structured case brief, identifies the information you're missing, analyzes your documents with your situation in mind, and prepares your next step: a factual communication draft and a consultation-ready brief you can bring to a professional. Every document finding is traced back to a quote from your own document — verified on the server, never just asserted.
 
 ## The problem
 
-People sign legal documents they don't fully understand — leases, offer letters, freelance contracts, terms of service. The language is dense, the stakes are real, and most people can't afford to pay a lawyer to read every document. The hardest part isn't reading the words; it's knowing **what to worry about, what to ask, and whether to get help** before signing.
+Most people facing a legal problem — a withheld security deposit, unpaid salary, a refused refund — don't know where to start. They don't know what facts matter, what evidence to keep, what their documents actually say, or what to ask a professional. Legal help is expensive and often assumes you can already state your problem in legal terms. The hardest part isn't getting an answer; it's getting *organized enough to ask*.
+
+At the same time, people sign documents they don't fully understand. Legible helps with both: it is a **legal problem navigator** with a document intelligence engine at its core.
 
 ## Target users
 
-People without legal training facing a consequential document:
+People without legal training who are facing a concrete situation:
 
-- Renters signing a lease
-- New hires reviewing an employment contract or offer letter
+- Renters whose deposit hasn't been returned (or who are about to sign a lease)
+- Employees whose salary is unpaid (or who are reviewing an employment agreement)
+- Consumers in a refund or defective-product dispute
 - Freelancers and small-business owners sent a client agreement
-- Consumers facing binding terms of service or settlement paperwork
 
-## The solution — one coherent workflow
+## The workflow — one coherent journey
 
 ```
-Upload (PDF / DOCX / TXT) or paste text
-   ↓  validated, extracted, normalized, capped
-ONE structured AI analysis
+"My landlord hasn't returned my security deposit."   ← plain words, no legal terms
+   ↓ ONE structured AI call
+Smart intake: 3–5 clarifying questions generated for THIS situation
+   (move-out date? itemized list? written agreement? location? outcome sought?)
+   ↓ ONE structured AI call
+CASE BRIEF — the central artifact
+   ├── Situation summary
+   ├── Known facts — every one badged: YOU SAID · FROM DOCUMENT · AI INTERPRETATION
+   ├── Parties and amounts
+   ├── Timeline (dates exactly as stated; "Date not specified" when unknown — never invented)
+   ├── Information gaps — what may help you prepare, why, and how to get it
+   └── Possible next steps to consider (practical, non-binding)
    ↓
-Consultation-ready brief — saved to this browser's history
-   ├── Plain summary: what am I being asked to agree to?
-   ├── Key clauses — each with a verbatim quote
-   ├── Obligations: what must I do / what do I get?
-   ├── Potential concerns — flagged low / medium / high
-   ├── Missing or incomplete — blanks, placeholders, absent exhibits,
-   │     unsigned blocks ("verify this before signing" framing)
-   ├── Potential imbalances — party-vs-party differences in notice,
-   │     costs, liability, termination ("potential imbalance", never "unfair")
-   ├── Questions to ask a lawyer — specific, ready to use
-   └── Possible next steps — practical, non-binding
-   ↓ (every finding: collapsible "Why was this flagged?" evidence —
-       section, page when the PDF provides one, excerpt, explanation)
+CASE READINESS — a deterministic, transparent completeness meter
+   ("Preparation completeness — not an assessment of legal outcome")
+   ↓ attach documents (PDF / DOCX / TXT / paste)
+DOCUMENT INTELLIGENCE — the existing engine, focused on the problem
+   ├── Plain summary · key clauses · obligations · concerns (low/med/high)
+   ├── Missing or incomplete information
+   ├── Potential party imbalances
+   └── Every finding: "Why was this flagged?" — verified quote, PDF page when
+       the file provides one, section (AI-identified, labeled as such)
    ↓
-Grounded follow-up Q&A + "Explore a scenario" ("What happens if…?")
-   — answers only from the document, with "I can't determine that from
-     this document alone" when it doesn't say
+Grounded Q&A + "Explore a scenario" ("What happens if…?") — answers only from
+   the document, with "I can't determine that from this document alone" when
+   it doesn't say
+   ↓
+COMMUNICATION DRAFT — a factual, review-before-sending message based only on
+   your facts and documents ("AI-generated draft — review carefully")
+   ↓
+PROFESSIONAL BRIEF — consultation-ready, composed deterministically from your
+   case data (no AI call): situation, facts, timeline, documents, findings,
+   gaps, questions to ask. Copy or print it.
 ```
 
-**The differentiator is trust through traceability.** Every clause, obligation, and concern carries a quote from the user's own document — and the server independently **verifies each quote appears in the text** before the UI renders it. Verified quotes are badged ✓; anything the model paraphrased is visibly marked. The output isn't just a summary — it's a preparation sheet that turns a confused reader into an informed client who can use a legal consultation (often free) efficiently.
+A document-only workflow (upload → analyze) remains available — the analyzer is an engine inside the product, not the whole product. Everything is stored only in your browser: cases reference documents by id, nothing is ever written to a server.
+
+**The differentiator is trust through traceability.** Document findings carry quotes the server independently verifies against the extracted text; page numbers come only from the PDF's real page markers — never guessed; case facts are badged by origin so an AI inference is never silently presented as something you said; the case-readiness number is computed by code, not the model; and the professional brief is assembled deterministically from data you already reviewed — no new AI output.
 
 ## GenAI architecture
 
-- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.5-flash-lite` by default (500 requests/day on the free tier; override with `GEMINI_MODEL`)
-- **Structured output:** each analysis is **one** `interactions.create` call with `response_format: { type: "text", mime_type: "application/json", schema }`, where the schema is our Zod schema converted to JSON Schema. One call produces summary, clauses, obligations, concerns, missing-information findings, party asymmetries, suggested scenarios, questions, and steps — no per-section calls. A scenario exploration is one additional focused call per question, reusing the already-extracted document text.
-- **Validation:** Gemini enforces the JSON schema; the response is then **re-validated with Zod** before anything reaches the UI. Unparseable or schema-invalid output returns a clean error; SDK errors (`ApiError`) are mapped to safe messages (rate limit, auth, 5xx). Malformed AI output can never crash the app.
-- **Grounding:** beyond schema validation, every returned quote is checked against the extracted text (`verifyQuotes`, whitespace-normalized, ellipsis-fragment-aware substring match). The UI distinguishes verified quotes from AI paraphrases. Page numbers in the evidence view come only from the PDF extractor's real page markers (`findPages`) — never guessed.
-- **Document processing:** PDF via `pdf-parse`, DOCX via `mammoth`, TXT read directly. Text is normalized (line endings, blank lines) and capped at 120,000 characters to bound cost and latency per request.
-- **Privacy:** `store: false` on every model call — requests and responses are not retained on Google's side. Analyzed documents and their briefs are saved only to the user's own browser (localStorage) so the history survives a refresh; nothing is written to any server, and each entry can be deleted from the documents list.
-- **Prompt-injection defense:** document text is wrapped in `<document>` tags and the system instruction tells the model to treat it strictly as untrusted data — instructions inside a document ("ignore previous instructions…") are ignored and analyzed as text. Both defenses are pinned by tests.
+- **Provider:** Google Gemini API via the `@google/genai` SDK — `gemini-3.5-flash-lite` by default (500 requests/day on the free tier; override with `GEMINI_MODEL`).
+- **One structured call per user action.** Each response uses `response_format` with a JSON schema derived from our Zod schemas, then is **re-validated with Zod** before anything reaches the UI:
+  - *Intake questions* — one call from the problem description.
+  - *Case brief* — one call from problem + answers (+ compact document findings once documents are attached).
+  - *Document analysis* — one call producing summary, clauses, obligations, concerns, missing information, party asymmetries, suggested scenarios, questions, and steps — no per-section calls. With a case open, the person's situation is passed along so the analysis prioritizes what matters to it.
+  - *Q&A / scenario* — one focused call per question, reusing the already-extracted document text.
+  - *Communication draft* — one call from the user's facts and analyzed document text.
+  - The *professional brief* and *case readiness* involve **no AI call at all** — they are deterministic compositions of structured data.
+- **Validation:** Gemini enforces the JSON schema; the response is then re-validated with Zod. Unparseable or schema-invalid output returns a clean error; SDK errors are mapped to safe messages. Malformed AI output can never crash the app.
+- **Grounding:** every returned document quote is checked against the extracted text (`verifyQuotes`, whitespace-normalized, ellipsis-fragment-aware). The UI distinguishes verified quotes from AI paraphrases. Page numbers come only from the PDF extractor's real page markers (`findPages`). Section labels in the evidence view are AI-identified and labeled as such — never presented as independently verified.
+- **Hallucination control for case briefs:** every fact carries a schema-enforced origin (`user` / `document` / `ai`). The prompt forbids inventing facts, dates, amounts, laws, rights, or deadlines, and requires "Date not specified" rather than a fabricated date. The deterministic readiness calculation and the no-AI professional brief extend the same discipline.
+- **Prompt-injection defense:** all user prose and document text are wrapped in delimiters (`<problem>`, `<answers>`, `<document>`, …) and treated strictly as untrusted data in every system prompt — instructions inside them are ignored and analyzed as text. Both defenses are pinned by tests across all six prompts.
+- **Document processing:** PDF via `pdf-parse` (loaded as a server-external package so its worker resolves correctly in production builds), DOCX via `mammoth`, TXT read directly. Text is normalized and capped at 120,000 characters to bound cost and latency.
+- **Privacy:** `store: false` on every model call — requests and responses are not retained on Google's side. Cases and documents live only in the user's browser (localStorage, capped at 10 cases / 20 documents) and can be deleted at any time.
 
 ## Technology stack
 
 Next.js (App Router) · TypeScript · React · Tailwind CSS v4 · `@google/genai` · Zod · `pdf-parse` · `mammoth` · Vitest
 
-Every dependency earns its place; there is no database, no vector store, and no additional service. Extracted-document analysis at this size does not need retrieval infrastructure.
+Seven runtime dependencies, no database, no vector store, no additional service, no retrieval infrastructure — the bounded context is sent directly.
 
 ## Security
 
+- **Rate limiting:** per-IP sliding-window limit (15 requests/minute) shared across the three AI endpoints — one visitor cannot burn the API quota. In-memory by design for a single-instance deployment.
 - **Secrets:** the API key lives only in `.env` (git-ignored); `.env.example` documents it. No key is ever sent to the browser.
-- **File validation:** extension allow-list (PDF/DOCX/TXT/MD), 5 MB cap, empty-file rejection — all *before* parsing.
-- **Input validation:** all request payloads parsed with Zod (question length, history cap, document size); text paths enforce a 200-character minimum so no AI call is made without meaningful input.
-- **Prompt injection:** documents are untrusted data (see GenAI architecture).
-- **Privacy:** no database, no file storage, no logging of document content. Documents live in request memory only; the extracted text is returned to the same client that uploaded it so follow-up questions can be grounded. Saved history is browser-local, capped at 20 documents, and best-effort — if storage is blocked the app still works.
+- **File validation:** extension allow-list (PDF/DOCX/TXT/MD), 5 MB cap, empty-file rejection — all *before* parsing — plus **magic-byte checks** (a `.pdf` must start with `%PDF-`, a `.docx` with the zip signature `PK`), so a renamed arbitrary file never reaches a parser. Corrupt or password-protected files surface as clean errors.
+- **Input validation:** all request payloads parsed with Zod (problem/question lengths, answer caps, document size, mode enums); text paths enforce a 200-character minimum so no AI call happens without meaningful input.
+- **Prompt injection:** user prose and documents are untrusted data (see GenAI architecture); pinned by tests on every prompt.
+- **Privacy:** no database, no file storage, no logging of document or case content. Documents live in request memory only; extracted text is returned to the same client that uploaded it. Local history is best-effort — if storage is blocked the app still works.
 - **Safe errors:** API failures map to short user-facing messages; internals are never leaked.
 
 ## Efficiency
 
-- **One model call per analysis** — summary, clauses, obligations, concerns, questions, and steps come from a single structured response, not six calls.
-- **One user action = exactly one API call** — the SDK's default 5-attempt retry loop is disabled; a failed request surfaces immediately as a clean message instead of silently re-billing input tokens.
-- **No AI call without meaningful input** — a 200-character minimum on all input paths.
-- **Bounded context** — extracted text is capped at 120,000 characters per request.
-- **No duplicate work** — extraction happens once per document; Q&A reuses the client-held text; there is no polling or background processing.
-- **Minimal footprint** — no database, no vector store, six runtime dependencies.
+- **One model call per user action** — a complete case journey is ~5 calls (intake, brief, analysis, optional brief refresh per attached document, optional draft), each a single structured request.
+- **Retries disabled** — the SDK's default 5-attempt retry loop is off; a failed request surfaces immediately instead of silently re-billing input tokens.
+- **No AI call without meaningful input** — minimum lengths on all input paths.
+- **Bounded context** — extracted text capped at 120,000 characters; case answers and document-findings summaries are capped before each call.
+- **No duplicate work** — extraction happens once per document; the case stores document *ids*, not copies; the professional brief and readiness score are computed, not generated.
 
 ## Testing
 
-`npm test` — 33 unit tests (Vitest) covering the highest-risk logic:
+`npm test` — unit tests (Vitest) covering the highest-risk logic:
 
 - File validation: allowed types, rejected extensions, oversized and empty files
+- **Magic-byte signatures**: renamed non-PDF/non-DOCX files rejected before parsing
+- **DOCX extraction** (from a real minimal DOCX package built in-test) and **corrupt-PDF handling**
 - Text normalization and the truncation path for oversized documents
 - The grounding check: exact, whitespace-variant, ellipsis-abbreviated, blank/placeholder, absent, and empty quotes
-- Evidence map page detection: page-marker mapping, abbreviated quotes, no-markers and not-found cases
-- New schema fields: extended analysis shape, scenario shape, request mode validation
-- Request schema: valid, empty, too-short, oversized, and over-history requests
-- Local history: round-trip, newest-first ordering, 20-entry cap, deletion, corrupt/blocked storage fallback
-- Prompt-injection defenses: `<document>` delimiters and the untrusted-data instructions in all system prompts
+- Evidence-map page detection: page-marker mapping, abbreviated quotes, no-markers and not-found cases
+- Document analysis, request, and scenario schemas; the case schemas: source-tagged facts, timeline, intake, draft, and request validation for all three case modes
+- **Case readiness**: deterministic completeness calculation
+- **Rate limiter**: window behavior and per-key isolation
+- Local document history and case history: round-trips, caps, deletion, corrupt/blocked storage fallback
+- **The deterministic professional brief**: section composition, source labels, unverified-quote flagging
+- Prompt-injection defenses: delimiters and the untrusted-data instructions in **all six** system prompts
 
 ## Accessibility
 
-Semantic HTML with labeled regions and headings; `sr-only` labels on icon-only inputs; `role="status"`/`role="alert"` live regions for loading and errors; visible focus outlines on all interactive elements; `aria-pressed` toggle buttons for input mode; responsive single-column layout that works at phone width; plain language throughout. A dark theme is available via the header toggle (choice is remembered; defaults to the system preference, applied before first paint), and all colors meet contrast requirements in both themes.
+Semantic HTML with labeled regions and headings; `sr-only` labels on icon-only inputs; `role="status"`/`role="alert"` live regions for loading and errors; a labeled `progressbar` for case readiness; visible focus outlines on all interactive elements (including `<summary>`); `aria-pressed` toggles; responsive single-column layout that works at phone width; plain language throughout. A dark theme is available via the header toggle (choice remembered; defaults to system preference, applied before first paint), and all colors meet contrast requirements in both themes.
 
 ## Setup
 
@@ -111,7 +138,7 @@ npm run dev            # http://localhost:3000
 
 ## Deployment
 
-Any Node host. On Vercel: import the repo, set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) as environment variables, deploy. No other infrastructure is needed.
+Any Node host. On Vercel: import the repo, set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) as environment variables, deploy. No other infrastructure is needed. (Note: on Vercel's Hobby plan, set `maxDuration` in the API routes to 60 or lower.)
 
 ```
 npm run build   # production build
@@ -119,6 +146,22 @@ npm start       # production server
 npm test        # test suite
 ```
 
+## Demo scenarios
+
+Three polished examples, each one click from the home page — examples of the generic system, not separate code paths (there is no domain-specific logic anywhere):
+
+1. **Housing — "My landlord hasn't returned my security deposit."** The flagship: dynamic intake questions, a case brief with timeline and gaps, the sample rental agreement analyzed against the situation (deposit clause, wear-and-tear language, auto-renewal), verified evidence, scenarios ("What happens if the landlord refuses?"), a written refund request draft, and the consultation brief.
+2. **Employment — "My employer hasn't paid my salary."** The sample employment agreement showcases obligations, notice-period and termination asymmetries between the parties, missing information (an unattached annexure), and a payment-request draft.
+3. **Consumer — "A seller won't refund my defective product."** Works with **no contract at all**: a pasted purchase record and chat conversation become evidence, demonstrating that Legible is a problem navigator, not a document summarizer.
+
+## Limitations
+
+- The case brief and intake questions are AI-generated syntheses of what you provide. Fact origin is badged (`AI interpretation` is visibly distinct), but Legible can misread or over-connect — verify AI-tagged facts.
+- Document section labels in the evidence view are AI-identified, not independently verified (the quote beside them is verified; the label is not).
+- No legal-domain knowledge base, no statute lookup, no jurisdiction-specific conclusions — deliberately. Legible organizes and prepares; it does not tell you what the law says where you live.
+- Documents are analyzed in-memory and returned to your browser; case and document history is browser-local (cleared if you clear site data).
+- The rate limiter is per server instance; scanned PDFs (images without a text layer) cannot be read — paste the text instead.
+
 ## Legal disclaimer
 
-Legible provides **informational assistance to help you read and understand documents**. It is not a lawyer, does not provide legal advice, and does not replace consultation with a qualified legal professional. It may miss issues or misread passages. Analyses use cautious language ("may", "consider asking a professional") by design, and the product never claims a document is legal or illegal or predicts outcomes. Always consult a licensed professional before making legal decisions.
+Legible provides **informational assistance to help you understand, organize, and prepare**. It is not a lawyer, does not provide legal advice, and does not replace consultation with a qualified legal professional. It may miss issues or misread passages. Analyses use cautious language ("may", "consider asking a professional") by design, and the product never claims a document is legal or illegal, predicts outcomes, or states what you are legally entitled to. Always consult a licensed professional before making legal decisions.

@@ -97,8 +97,129 @@ export const AskRequestSchema = z.object({
     .max(10)
     .default([]),
   mode: z.enum(["ask", "scenario"]).default("ask"),
+  /** The reader's legal problem, when Q&A happens inside a case — context
+   *  only; answers still come from the document. */
+  situation: z.string().trim().max(2000).optional(),
 });
 export type AskRequest = z.infer<typeof AskRequestSchema>;
+
+// --- Case workflow (V2) -------------------------------------------------------
+//
+// The case model: a person describes a legal problem in plain words, answers a
+// few generated clarifying questions, and gets a structured, source-tagged
+// Case Brief. Every fact carries its origin — user, document, or AI
+// interpretation — so an inference is never silently presented as a user fact.
+
+export const FactSourceSchema = z.enum(["user", "document", "ai"]);
+export type FactSource = z.infer<typeof FactSourceSchema>;
+
+export const FactSchema = z.object({
+  text: z.string().describe("One established fact, in plain language"),
+  source: FactSourceSchema.describe("Where this fact comes from: user (the person stated it), document (from analyzed document findings), or ai (your interpretation of what was said)"),
+});
+
+export const TimelineEventSchema = z.object({
+  date: z.string().describe("The date or timing exactly as stated ('12 August', 'September 2025'); 'Date not specified' when unknown — never invent a date"),
+  event: z.string().describe("What happened, in plain language"),
+  source: FactSourceSchema,
+});
+
+export const PartySchema = z.object({
+  name: z.string().describe("Who this party is, as identified from the information provided"),
+  role: z.string().describe("Their role in the situation, e.g. 'Landlord', 'Employer', 'Seller'"),
+});
+
+export const AmountSchema = z.object({
+  amount: z.string().describe("The amount exactly as stated, e.g. '₹50,000', 'two months rent'"),
+  whatFor: z.string().describe("What the amount relates to"),
+});
+
+export const InfoGapSchema = z.object({
+  gap: z.string().describe("Information or evidence that is not available yet but may help the person understand or prepare, e.g. 'Itemized deduction statement from the landlord'"),
+  whyItMayHelp: z.string().describe("Why having this may help — framed as preparation, never as proving or losing anything"),
+  howToGet: z.string().describe("A practical way the person might obtain or verify it, e.g. 'Request it in writing from the landlord'"),
+});
+
+export const CaseNextStepSchema = z.object({
+  action: z.string().describe("One practical, non-binding step, e.g. 'Request the itemized deductions in writing'"),
+  whyItMayHelp: z.string().describe("Why this step may help, in cautious plain language"),
+  caution: z.string().optional().describe("What to verify or be careful about, when relevant"),
+});
+
+export const CaseBriefSchema = z.object({
+  situationSummary: z.string().describe("3-6 sentences restating the situation in plain language"),
+  knownFacts: z.array(FactSchema).describe("Facts established so far, each with its origin"),
+  parties: z.array(PartySchema).describe("People/organizations involved; empty if not identified"),
+  amounts: z.array(AmountSchema).describe("Amounts mentioned; empty if none"),
+  timeline: z.array(TimelineEventSchema).describe("Events in order; 'Date not specified' when timing is unknown"),
+  informationGaps: z.array(InfoGapSchema).describe("Information that may help the person prepare; empty if none"),
+  nextSteps: z.array(CaseNextStepSchema).describe("3-6 practical, non-binding next steps to consider"),
+  questionsForLawyer: z.array(z.string()).describe("4-8 specific questions worth asking a qualified legal professional"),
+});
+export type CaseBrief = z.infer<typeof CaseBriefSchema>;
+
+export const IntakeQuestionsSchema = z.object({
+  questions: z
+    .array(
+      z.object({
+        question: z.string().describe("One clarifying question in plain, conversational language — no legal terminology"),
+        whyAsking: z.string().describe("One short line on why this question may help"),
+      }),
+    )
+    .max(5)
+    .describe("3-5 questions most relevant to this specific situation"),
+});
+export type IntakeQuestions = z.infer<typeof IntakeQuestionsSchema>;
+
+export const DraftTypeSchema = z.enum([
+  "written-request",
+  "payment-request",
+  "clarification",
+  "complaint",
+  "response",
+]);
+export type DraftType = z.infer<typeof DraftTypeSchema>;
+
+export const DraftSchema = z.object({
+  draftText: z.string().describe("The complete message ready to copy, starting with a subject line — polite, factual, based only on the provided facts"),
+  basedOn: z
+    .array(
+      z.object({
+        point: z.string().describe("One point the draft draws on"),
+        source: z.enum(["user", "document"]).describe("user (from the person's answers) or document (from the analyzed document)"),
+      }),
+    )
+    .describe("The specific points this draft is based on"),
+});
+export type Draft = z.infer<typeof DraftSchema>;
+
+/** One request shape for the three case AI operations, discriminated by mode. */
+export const CaseRequestSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("intake"),
+    problem: z.string().trim().min(20, "Describe your situation in a little more detail.").max(4000),
+  }),
+  z.object({
+    mode: z.literal("brief"),
+    problem: z.string().trim().min(20, "Describe your situation in a little more detail.").max(4000),
+    answers: z
+      .array(z.object({ question: z.string().max(2000), answer: z.string().max(4000) }))
+      .max(8)
+      .default([]),
+    documentFindings: z.array(z.string().max(4000)).max(10).default([]),
+  }),
+  z.object({
+    mode: z.literal("draft"),
+    problem: z.string().trim().min(20, "Describe your situation in a little more detail.").max(4000),
+    answers: z
+      .array(z.object({ question: z.string().max(2000), answer: z.string().max(4000) }))
+      .max(8)
+      .default([]),
+    draftType: DraftTypeSchema,
+    documentText: z.string().max(200_000).optional(),
+  }),
+]);
+export type CaseRequest = z.infer<typeof CaseRequestSchema>;
 
 // Server-annotated forms: each AI quote is checked against the source text
 // and marked verified (grounding proof surfaced in the UI). Page numbers are

@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { askQuestion, AiError } from "@/lib/ai";
 import { findPages, verifyQuotes } from "@/lib/document";
-import { AskRequestSchema, type Answer, type Scenario } from "@/lib/schemas";
+import { AskRequestSchema } from "@/lib/schemas";
+import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/** POST JSON { documentText, question, history } — grounded Q&A over one document. */
+/** POST JSON { documentText, question, history, situation? } — grounded Q&A
+ *  over one document. */
 export async function POST(request: NextRequest) {
+  if (!rateLimit(`ai:${clientIp(request)}`, AI_RATE_LIMIT, AI_RATE_WINDOW_MS)) {
+    return NextResponse.json(
+      { error: "Too many requests — please wait a moment and try again." },
+      { status: 429 },
+    );
+  }
   try {
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
     const parsed = AskRequestSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -20,8 +33,8 @@ export async function POST(request: NextRequest) {
 
     const result = await askQuestion(parsed.data);
 
-    if (parsed.data.mode === "scenario") {
-      const scenario = result as Scenario;
+    if ("scenario" in result) {
+      const scenario = result.scenario;
       return NextResponse.json({
         answer: {
           ...scenario,
@@ -31,7 +44,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const answer = result as Answer;
+    const answer = result.answer;
     const quotesVerified = verifyQuotes(
       parsed.data.documentText,
       answer.supportingQuotes.map((q) => q.quote),

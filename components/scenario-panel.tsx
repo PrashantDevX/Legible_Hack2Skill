@@ -10,9 +10,11 @@ import { EvidenceBlock } from "./bits";
 export function ScenarioPanel({
   documentText,
   examples,
+  situation,
 }: {
   documentText: string;
   examples: string[];
+  situation?: string;
 }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,12 @@ export function ScenarioPanel({
       const response = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentText, question: q, mode: "scenario" }),
+        body: JSON.stringify({
+          documentText,
+          question: q,
+          mode: "scenario",
+          ...(situation ? { situation } : {}),
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not explore this scenario.");

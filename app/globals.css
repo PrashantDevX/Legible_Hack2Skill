@@ -64,7 +64,27 @@ body {
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Print: only the consultation brief (#lawyer-brief-print) is printed —
+   the "Print / Save" button on a case. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #lawyer-brief-print,
+  #lawyer-brief-print * {
+    visibility: visible;
+  }
+  #lawyer-brief-print {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+    border: 0;
+  }
 }

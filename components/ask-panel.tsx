@@ -6,9 +6,17 @@ import { QuoteBlock } from "./bits";
 
 type Turn = { question: string; answer: VerifiedAnswer };
 
-/** Grounded follow-up Q&A about the analyzed document. */
+/** Grounded follow-up Q&A about the analyzed document. When a situation is
+ *  given (case context), it is sent as context — answers still come only from
+ *  the document. */
 
-export function AskPanel({ documentText }: { documentText: string }) {
+export function AskPanel({
+  documentText,
+  situation,
+}: {
+  documentText: string;
+  situation?: string;
+}) {
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -32,6 +40,7 @@ export function AskPanel({ documentText }: { documentText: string }) {
             question: t.question,
             answer: t.answer.answer,
           })),
+          ...(situation ? { situation } : {}),
         }),
       });
       const data = await response.json();

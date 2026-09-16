@@ -3,17 +3,27 @@ import { z } from "zod";
 import {
   AnalysisSchema,
   AnswerSchema,
+  CaseBriefSchema,
+  DraftSchema,
+  IntakeQuestionsSchema,
   ScenarioSchema,
   type Analysis,
   type Answer,
   type AskRequest,
+  type CaseBrief,
+  type Draft,
+  type IntakeQuestions,
   type Scenario,
 } from "./schemas";
 import {
   ANALYSIS_SYSTEM_PROMPT,
   ASK_SYSTEM_PROMPT,
+  CASE_BRIEF_SYSTEM_PROMPT,
+  DRAFT_SYSTEM_PROMPT,
+  INTAKE_SYSTEM_PROMPT,
   SCENARIO_SYSTEM_PROMPT,
   documentBlock,
+  tagged,
 } from "./prompts";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
@@ -111,28 +121,104 @@ async function generateStructured<T>(
   return parsed.data;
 }
 
-/** One structured call: summary, clauses, obligations, concerns, questions, steps. */
-export function analyzeDocument(documentText: string): Promise<Analysis> {
-  return generateStructured(ANALYSIS_SYSTEM_PROMPT, documentBlock(documentText), AnalysisSchema);
+/** One structured call: summary, clauses, obligations, concerns, questions, steps.
+ *  When a situation is given (case context), it precedes the document so the
+ *  analysis can prioritize what matters to the reader's problem. */
+export function analyzeDocument(documentText: string, situation?: string): Promise<Analysis> {
+  const input = [
+    situation?.trim() ? tagged("reader-situation", situation.trim().slice(0, 2000)) : null,
+    documentBlock(documentText),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return generateStructured(ANALYSIS_SYSTEM_PROMPT, input, AnalysisSchema);
 }
 
 /**
  * Grounded follow-up: a direct question or a "what if?" scenario, each one
- * focused call reusing the already-extracted document text.
+ * focused call reusing the already-extracted document text. The result is
+ * discriminated so callers narrow by shape, not by cast.
  */
-export function askQuestion(request: AskRequest): Promise<Answer | Scenario> {
-  const input = [documentBlock(request.documentText), `Question: ${request.question}`]
+export async function askQuestion(
+  request: AskRequest,
+): Promise<{ answer: Answer } | { scenario: Scenario }> {
+  const input = [
+    request.situation ? tagged("reader-situation", request.situation) : null,
+    documentBlock(request.documentText),
+    `Question: ${request.question}`,
+  ]
     .filter(Boolean)
     .join("\n\n");
   if (request.mode === "scenario") {
-    return generateStructured(SCENARIO_SYSTEM_PROMPT, input, ScenarioSchema);
+    return { scenario: await generateStructured(SCENARIO_SYSTEM_PROMPT, input, ScenarioSchema) };
   }
   const history = request.history
     .map((turn) => `Reader previously asked: ${turn.question}\nYou answered: ${turn.answer}`)
     .join("\n\n");
+  return {
+    answer: await generateStructured(
+      ASK_SYSTEM_PROMPT,
+      [history, input].filter(Boolean).join("\n\n"),
+      AnswerSchema,
+    ),
+  };
+}
+
+// --- Case workflow (V2): one structured call per user action ------------------
+
+export type CaseAnswer = { question: string; answer: string };
+
+/** Smart intake: 3-5 clarifying questions generated from the problem description. */
+export function askIntakeQuestions(problem: string): Promise<IntakeQuestions> {
   return generateStructured(
-    ASK_SYSTEM_PROMPT,
-    [history, input].filter(Boolean).join("\n\n"),
-    AnswerSchema,
+    INTAKE_SYSTEM_PROMPT,
+    tagged("problem", problem),
+    IntakeQuestionsSchema,
   );
+}
+
+/** The structured, source-tagged case brief. `documentFindings` are compact
+ *  summaries of the case's analyzed documents, built client-side. */
+export function buildCaseBrief(
+  problem: string,
+  answers: CaseAnswer[],
+  documentFindings: string[] = [],
+): Promise<CaseBrief> {
+  const input = [
+    tagged("problem", problem),
+    answers.length
+      ? tagged(
+          "answers",
+          answers.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n"),
+        )
+      : null,
+    documentFindings.length ? tagged("document-findings", documentFindings.join("\n\n")) : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return generateStructured(CASE_BRIEF_SYSTEM_PROMPT, input, CaseBriefSchema);
+}
+
+/** A factual communication draft — based only on the user's facts, answers,
+ *  and (when provided) the analyzed document text. */
+export function draftCommunication(
+  problem: string,
+  answers: CaseAnswer[],
+  draftType: string,
+  documentText?: string,
+): Promise<Draft> {
+  const input = [
+    tagged("problem", problem),
+    answers.length
+      ? tagged(
+          "answers",
+          answers.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n"),
+        )
+      : null,
+    documentText ? documentBlock(documentText) : null,
+    tagged("draft-type", draftType),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return generateStructured(DRAFT_SYSTEM_PROMPT, input, DraftSchema);
 }

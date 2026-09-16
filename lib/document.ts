@@ -47,28 +47,54 @@ export function validateFile(filename: string, bytes: number): void {
   if (bytes === 0) throw new DocumentError("File is empty.");
 }
 
+/**
+ * Content validation: the file's leading bytes must match its extension's
+ * real signature, so a renamed arbitrary file never reaches a parser.
+ * Plain-text formats (txt/md) have no signature and are skipped.
+ */
+export function validateFileSignature(filename: string, buffer: Buffer): void {
+  const ext = extensionOf(filename);
+  if (ext === "pdf" && buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
+    throw new DocumentError("This file does not appear to be a valid PDF. If it is a scan or image, paste the text instead.");
+  }
+  if (ext === "docx" && !(buffer[0] === 0x50 && buffer[1] === 0x4b)) {
+    // DOCX is a zip archive — every zip variant starts with "PK".
+    throw new DocumentError("This file does not appear to be a valid Word (DOCX) document.");
+  }
+}
+
 /** Collapse Windows line endings and excessive blank lines; trim. */
 export function normalizeText(raw: string): string {
   return raw.replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/** Extract text, normalize, and cap at MAX_TEXT_CHARS. */
+/** Extract text, normalize, and cap at MAX_TEXT_CHARS. Parser failures are
+ *  wrapped as DocumentError so corrupt files surface as clean 400s. */
 export async function extractText(filename: string, buffer: Buffer): Promise<ExtractResult> {
   const ext = extensionOf(filename);
+  validateFileSignature(filename, buffer);
   let raw: string;
-  if (ext === "pdf") {
-    const parser = new PDFParse({ data: new Uint8Array(buffer) });
-    try {
-      const result = await parser.getText();
-      raw = result.text;
-    } finally {
-      await parser.destroy();
+  try {
+    if (ext === "pdf") {
+      const parser = new PDFParse({ data: new Uint8Array(buffer) });
+      try {
+        const result = await parser.getText();
+        raw = result.text;
+      } finally {
+        await parser.destroy();
+      }
+    } else if (ext === "docx") {
+      const result = await mammoth.extractRawText({ buffer });
+      raw = result.value;
+    } else {
+      raw = buffer.toString("utf8");
     }
-  } else if (ext === "docx") {
-    const result = await mammoth.extractRawText({ buffer });
-    raw = result.value;
-  } else {
-    raw = buffer.toString("utf8");
+  } catch (error) {
+    if (error instanceof DocumentError) throw error;
+    console.error("extraction failed:", error instanceof Error ? error.message : error);
+    throw new DocumentError(
+      "This file could not be read. It may be corrupt or password-protected — try another file or paste the text instead.",
+    );
   }
 
   const text = normalizeText(raw);

@@ -7,6 +7,9 @@ export function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
+    // One-shot read of the theme the pre-paint script already applied to <html>
+    // (an external system) — the rule's subscription pattern does not apply.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDark(document.documentElement.getAttribute("data-theme") === "dark");
   }, []);
 

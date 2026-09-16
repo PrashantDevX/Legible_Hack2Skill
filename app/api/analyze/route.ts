@@ -1,20 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeDocument, AiError } from "@/lib/ai";
 import { DocumentError, extractText, findPages, validateFile, verifyQuotes } from "@/lib/document";
+import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 /**
- * POST multipart/form-data with either `file` (PDF/DOCX/TXT/MD) or `text`.
- * Returns the structured analysis plus a per-item grounding check marking
- * which quotes were verified verbatim in the extracted document text.
+ * POST multipart/form-data with either `file` (PDF/DOCX/TXT/MD) or `text`,
+ * plus an optional `situation` field (the user's legal problem) so the
+ * analysis can prioritize what matters to it while still covering the whole
+ * document. Returns the structured analysis plus a per-item grounding check
+ * marking which quotes were verified verbatim in the extracted document text.
  */
 export async function POST(request: NextRequest) {
+  if (!rateLimit(`ai:${clientIp(request)}`, AI_RATE_LIMIT, AI_RATE_WINDOW_MS)) {
+    return NextResponse.json(
+      { error: "Too many requests — please wait a moment and try again." },
+      { status: 429 },
+    );
+  }
   try {
     const form = await request.formData();
     const file = form.get("file");
     const pasted = form.get("text");
+    const situation = form.get("situation");
 
     let text: string;
     let truncated = false;
@@ -33,7 +43,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const analysis = await analyzeDocument(text);
+    // Case context (bounded; user input, never trusted instructions).
+    const context = typeof situation === "string" ? situation.trim().slice(0, 2000) : undefined;
+    const analysis = await analyzeDocument(text, context || undefined);
 
     // Grounding: verify every quote the model returned actually appears in
     // the document, and locate it on a page when the extraction produced

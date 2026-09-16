@@ -8,9 +8,9 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Legible — Understand any legal document before you sign it",
+  title: "Legible — From legal problem to prepared case",
   description:
-    "Upload a lease, contract, or agreement. Legible explains it in plain language, flags potential concerns, and prepares questions to ask a lawyer. Informational assistance only — not legal advice.",
+    "Describe a legal problem in your own words. Legible asks smart questions, organizes your facts, documents and evidence, identifies information gaps, and prepares your next step — with every finding traced back to your own documents. Informational assistance only — not legal advice.",
 };
 
 // Sets the theme before first paint to avoid a flash of the wrong theme.

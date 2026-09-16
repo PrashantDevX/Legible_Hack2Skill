@@ -1,4 +1,21 @@
-import type { Severity } from "@/lib/schemas";
+import type { FactSource, Severity } from "@/lib/schemas";
+
+/** Origin badge for case facts: distinguishes what the person said, what a
+ *  document established, and what the AI inferred — never silently mixed. */
+const SOURCE_STYLES: Record<FactSource, { label: string; className: string }> = {
+  user: { label: "You said", className: "bg-accent-soft text-accent" },
+  document: { label: "From document", className: "bg-ok-soft text-ok" },
+  ai: { label: "AI interpretation", className: "bg-warn-soft text-warn" },
+};
+
+export function SourceBadge({ source }: { source: FactSource }) {
+  const s = SOURCE_STYLES[source];
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${s.className}`}>
+      {s.label}
+    </span>
+  );
+}
 
 /** Verbatim quote from the user's document, with grounding status. */
 export function QuoteBlock({ quote, verified }: { quote: string; verified: boolean }) {
@@ -79,13 +96,43 @@ export function Section({
   count?: number;
   children: React.ReactNode;
 }) {
+  const id = title.toLowerCase().replace(/[^a-z]+/g, "-");
   return (
-    <section aria-labelledby={title.toLowerCase().replace(/[^a-z]+/g, "-")} className="space-y-3">
-      <h2 className="text-sm font-semibold tracking-wide text-muted uppercase">
+    <section aria-labelledby={id} className="space-y-3">
+      <h2 id={id} className="text-sm font-semibold tracking-wide text-muted uppercase">
         {title}
         {typeof count === "number" ? ` (${count})` : ""}
       </h2>
       {children}
+    </section>
+  );
+}
+
+/** A section that collapses by default — keeps long case workspaces scannable. */
+export function CollapsibleSection({
+  title,
+  count,
+  open = false,
+  children,
+}: {
+  title: string;
+  count?: number;
+  open?: boolean;
+  children: React.ReactNode;
+}) {
+  const id = title.toLowerCase().replace(/[^a-z]+/g, "-");
+  return (
+    <section aria-labelledby={id}>
+      <details open={open} className="group rounded-lg border border-line bg-surface">
+        <summary id={id} className="cursor-pointer list-none px-4 py-3 text-sm font-semibold tracking-wide text-muted uppercase select-none">
+          <span className="inline-block transition-transform group-open:rotate-90" aria-hidden>
+            ›
+          </span>{" "}
+          {title}
+          {typeof count === "number" ? ` (${count})` : ""}
+        </summary>
+        <div className="space-y-3 border-t border-line px-4 py-4">{children}</div>
+      </details>
     </section>
   );
 }
