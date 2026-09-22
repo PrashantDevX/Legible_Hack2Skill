@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { askQuestion, AiError } from "@/lib/ai";
-import { boundDocumentContext, findPages, verifyQuotes } from "@/lib/document";
+import { OMITTED_NOTE, boundDocumentContext, findPages, verifyQuotes } from "@/lib/document";
 import { MAX_JSON_BODY_BYTES, bodyTooLarge } from "@/lib/limits";
 import { AskRequestSchema } from "@/lib/schemas";
 import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-/**
- * Attached when the document was too long to send whole. Without it the model
- * would read the head and tail as contiguous text and could answer as though
- * the omitted middle did not exist.
- */
-const OMITTED_NOTE =
-  "The document below is not complete: a middle portion was omitted because the document is long. " +
-  "If answering depends on an omitted part, say the provided text does not cover it rather than guessing.";
 
 /** POST JSON { documentText, question, history, situation? } — grounded Q&A
  *  over one document. */

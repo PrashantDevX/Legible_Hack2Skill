@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_QUESTION_CHARS, MAX_TEXT_CHARS } from "./limits";
+import { MAX_HISTORY_ANSWER_CHARS, MAX_QUESTION_CHARS, MAX_TEXT_CHARS } from "./limits";
 
 /**
  * Shared request/response schemas. The AI output schemas are used both to
@@ -101,7 +101,7 @@ export const AskRequestSchema = z.object({
     .array(
       z.object({
         question: z.string().max(MAX_QUESTION_CHARS),
-        answer: z.string().max(4000),
+        answer: z.string().max(MAX_HISTORY_ANSWER_CHARS),
       }),
     )
     .max(10)

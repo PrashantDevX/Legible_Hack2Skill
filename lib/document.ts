@@ -88,8 +88,17 @@ export function validateFileSignature(filename: string, buffer: Buffer): void {
 }
 
 /**
- * Bound the document text sent with a follow-up question or scenario. A large
- * document is reduced to its head and tail rather than its head alone: the
+ * Sent alongside the bounded text whenever `omitted` is true. Without it the
+ * model would read the head and tail as contiguous text and could answer as
+ * though the omitted middle did not exist.
+ */
+export const OMITTED_NOTE =
+  "The document below is not complete: a middle portion was omitted because the document is long. " +
+  "If answering depends on an omitted part, say the provided text does not cover it rather than guessing.";
+
+/**
+ * Bound the document text sent with a follow-up question, scenario, or draft. A
+ * large document is reduced to its head and tail rather than its head alone: the
  * opening carries the parties, term and definitions, and the closing carries
  * signatures, schedules and exhibits — where blanks and incomplete fields
  * tend to live.

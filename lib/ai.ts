@@ -239,14 +239,18 @@ export function buildCaseBrief(
 }
 
 /** A factual communication draft — based only on the user's facts, answers,
- *  and (when provided) the analyzed document text. */
+ *  and (when provided) the analyzed document text. `contextNote` carries the
+ *  caller's note when the document had to be bounded (see
+ *  boundDocumentContext) so the model knows the text is not complete. */
 export function draftCommunication(
   problem: string,
   answers: CaseAnswer[],
   draftType: string,
   documentText?: string,
+  contextNote?: string,
 ): Promise<Draft> {
   const input = [
+    contextNote ? tagged("context-note", contextNote) : null,
     tagged("problem", problem),
     answers.length
       ? tagged(

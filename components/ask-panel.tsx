@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { MAX_HISTORY_ANSWER_CHARS } from "@/lib/limits";
 import type { VerifiedAnswer } from "@/lib/schemas";
 import { QuoteBlock } from "./bits";
 
@@ -38,7 +39,10 @@ export function AskPanel({
           question: q,
           history: historyRef.current.slice(-5).map((t) => ({
             question: t.question,
-            answer: t.answer.answer,
+            // A replayed turn is capped by the request schema. Answers are not
+            // length-capped on the way out, so a long one would otherwise make
+            // every later question in this view fail validation.
+            answer: t.answer.answer.slice(0, MAX_HISTORY_ANSWER_CHARS),
           })),
           ...(situation ? { situation } : {}),
         }),

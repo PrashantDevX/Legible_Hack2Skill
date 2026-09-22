@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AiError, askIntakeQuestions, buildCaseBrief, draftCommunication } from "@/lib/ai";
+import { OMITTED_NOTE, boundDocumentContext } from "@/lib/document";
 import { MAX_JSON_BODY_BYTES, bodyTooLarge } from "@/lib/limits";
 import { CaseRequestSchema } from "@/lib/schemas";
 import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
@@ -52,11 +53,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ brief });
     }
 
+    // Same bound as the follow-up path: a long document is reduced to head and
+    // tail, and the note tells the model the middle is missing so it does not
+    // draft as though the omitted part did not exist.
+    const bounded = parsed.data.documentText
+      ? boundDocumentContext(parsed.data.documentText)
+      : null;
     const draft = await draftCommunication(
       parsed.data.problem,
       parsed.data.answers,
       parsed.data.draftType,
-      parsed.data.documentText,
+      bounded?.text,
+      bounded?.omitted ? OMITTED_NOTE : undefined,
     );
     return NextResponse.json({ draft });
   } catch (error) {

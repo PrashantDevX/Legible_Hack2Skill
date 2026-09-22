@@ -21,6 +21,11 @@ export const MAX_ASK_CONTEXT_CHARS = 60_000;
 /** Longest single question a reader can ask. */
 export const MAX_QUESTION_CHARS = 1_000;
 
+/** A prior turn replayed into a follow-up request. The client re-sends model
+ *  answers it received, so this bound has to match what it may send back —
+ *  otherwise a long answer makes every later question in the view fail. */
+export const MAX_HISTORY_ANSWER_CHARS = 4_000;
+
 /** JSON endpoints (`/api/ask`, `/api/case`). Document text is capped at
  *  MAX_TEXT_CHARS, so any valid body is far below this. */
 export const MAX_JSON_BODY_BYTES = 512 * 1024;

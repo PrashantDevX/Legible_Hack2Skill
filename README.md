@@ -91,7 +91,7 @@ The strategy is: **one structured call per user action, never a repeated one, an
 
 - **One model call per user action** — a complete case journey is ~5 calls (intake, brief, analysis, optional brief refresh per attached document, optional draft), each a single structured request. No per-section fan-out.
 - **Identical work is never re-sent.** `lib/ai-cache.ts` keys each call by `sha256(operation + model + input)`: a repeated action is served from memory (10-minute TTL, 100-entry LRU), and concurrent identical requests share one in-flight call instead of racing. Measured on a production build: an identical repeat of a follow-up question went from **4.26 s to 0.0096 s** with no second model call.
-- **Follow-up Q&A reuses the extracted text, bounded.** Questions and scenarios reuse the already-extracted document rather than re-analyzing it, and send at most 60,000 characters (head + tail, middle marked as omitted) — not the full 120,000-character extraction.
+- **Follow-up Q&A and drafts reuse the extracted text, bounded.** Questions, scenarios, and communication drafts reuse the already-extracted document rather than re-analyzing it, and send at most 60,000 characters (head + tail, middle marked as omitted) — not the full 120,000-character extraction. Measured on a 98,828-character lease: a draft's model input fell from **18,122 to 11,350 tokens**, with the model told the middle was omitted.
 - **Deterministic work stays out of the model.** Case readiness, timeline ordering, the professional brief, quote verification, page lookup, and all validation are computed in code. The brief and readiness score make **zero** AI calls.
 - **Retries disabled** — the SDK's default 5-attempt retry loop is off; a failed request surfaces immediately instead of silently re-billing input tokens.
 - **Output ceilings per operation** — a single request cannot generate unbounded output.
@@ -126,6 +126,7 @@ The deduplication cache holds model *output* — which can quote the document �
 - **DOCX extraction** (from a real minimal DOCX package built in-test) and **corrupt-PDF handling**
 - Text normalization and the truncation path for oversized documents
 - **Bounded follow-up context**: short documents pass through unchanged; long documents keep their head and tail, are marked as omitted, stay within the cap, and — the property that matters — a quote taken from the omitted middle verifies as **`false`**
+- **Bounded draft context**: the draft path applies the same cap to the document it sends, attaches the omission note, and passes a short document through byte-for-byte
 - **Deterministic deduplication**: key stability and separation, one producer call for repeated identical requests, in-flight sharing, TTL expiry, failures left uncached, LRU bound
 - **Repeated Q&A**: the same question on the same document is one request; a different question, a different document, or new history is a different one
 - **Request-size limits**: ceiling ordering, at-limit allowed, over-limit rejected, and an absent or non-numeric `Content-Length` deferring to the schema caps
@@ -200,7 +201,7 @@ Three polished examples, each one click from the home page — examples of the g
 - No legal-domain knowledge base, no statute lookup, no jurisdiction-specific conclusions — deliberately. Legible organizes and prepares; it does not tell you what the law says where you live.
 - Documents are analyzed in-memory and returned to your browser; case and document history is browser-local (cleared if you clear site data).
 - The rate limiter is per server instance; scanned PDFs (images without a text layer) cannot be read — paste the text instead.
-- A follow-up question about a very long document (over 60,000 characters) may fall in the omitted middle; the model is told the text is incomplete and will say it cannot determine the answer rather than guess.
+- For a very long document (over 60,000 characters), follow-up answers and drafts work from its head and tail only. The omitted middle is marked as missing and the model is told not to guess about it, so it says the text does not cover the point rather than inventing one.
 - The deduplication cache keeps model output in server memory for up to 10 minutes (bounded, never logged, never written to disk) — see the privacy caveat under Security.
 
 ## Legal disclaimer

@@ -12,6 +12,7 @@ import {
   DocumentError,
 } from "../lib/document";
 import { AnalysisSchema, AskRequestSchema, ScenarioSchema } from "../lib/schemas";
+import { MAX_HISTORY_ANSWER_CHARS } from "../lib/limits";
 import { documentBlock } from "../lib/prompts";
 import { makeDocx } from "./helpers/minidocx";
 
@@ -339,6 +340,17 @@ describe("AskRequestSchema", () => {
       AskRequestSchema.safeParse({ ...valid, history: [{ question: "q".repeat(1001), answer: "a" }] })
         .success,
     ).toBe(false);
+  });
+
+  it("is exactly as permissive as the bound the follow-up panel replays", () => {
+    // The panel truncates a replayed answer to MAX_HISTORY_ANSWER_CHARS, and
+    // answers are not length-capped on the way out — so that bound has to be
+    // sufficient as well as necessary. If the schema capped lower, a long
+    // answer would make every later question in the view fail.
+    const replay = (answer: string) =>
+      AskRequestSchema.safeParse({ ...valid, history: [{ question: "q", answer }] });
+    expect(replay("a".repeat(MAX_HISTORY_ANSWER_CHARS)).success).toBe(true);
+    expect(replay("a".repeat(MAX_HISTORY_ANSWER_CHARS + 1)).success).toBe(false);
   });
 });
 
