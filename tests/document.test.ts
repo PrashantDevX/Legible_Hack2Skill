@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundDocumentContext,
   extractText,
   findPages,
   normalizeText,
@@ -133,6 +134,41 @@ describe("findPages (evidence map)", () => {
   });
 });
 
+describe("boundDocumentContext (follow-up context limit)", () => {
+  it("returns a document under the limit unchanged", () => {
+    const short = "A short lease.";
+    expect(boundDocumentContext(short)).toEqual({ text: short, omitted: false });
+  });
+
+  it("keeps the head and tail of a long document, marking the omission", () => {
+    const head = "HEAD: the deposit is refundable within 30 days.";
+    const tail = "TAIL: signatures are incomplete.";
+    const long = head + "x".repeat(100_000) + tail;
+
+    const bounded = boundDocumentContext(long);
+    expect(bounded.omitted).toBe(true);
+    expect(bounded.text.length).toBeLessThanOrEqual(60_000);
+    expect(bounded.text.startsWith(head)).toBe(true);
+    expect(bounded.text.endsWith(tail)).toBe(true);
+    // The gap is visible to the model rather than reading as contiguous text.
+    expect(bounded.text).toContain("middle portion of this document omitted");
+  });
+
+  it("verifies quotes from the retained regions and never from the omitted one", () => {
+    const head = "HEAD: the deposit is refundable within 30 days.";
+    const middle = "MIDDLE: this passage is omitted from the request.";
+    const tail = "TAIL: signatures are incomplete.";
+    const long = head + "x".repeat(50_000) + middle + "x".repeat(50_000) + tail;
+
+    const bounded = boundDocumentContext(long);
+    // Both regions the model is shown still verify...
+    expect(verifyQuotes(bounded.text, [head, tail])).toEqual([true, true]);
+    // ...and a passage the model was never given cannot be marked verified,
+    // which is why verification runs against this same bounded text.
+    expect(verifyQuotes(bounded.text, [middle])).toEqual([false]);
+  });
+});
+
 describe("file signature validation (magic bytes)", () => {
   it("rejects a non-PDF file renamed to .pdf", async () => {
     expect(() => validateFileSignature("fake.pdf", Buffer.from("MZ windows exe payload"))).toThrow(
@@ -150,8 +186,28 @@ describe("file signature validation (magic bytes)", () => {
   });
 
   it("accepts real PDF and DOCX signatures", () => {
+    // A short PDF has no room for a trailer, so the header alone is checked.
     expect(() => validateFileSignature("ok.pdf", Buffer.from("%PDF-1.7 rest"))).not.toThrow();
-    expect(() => validateFileSignature("ok.docx", Buffer.from("PK\x03\x04 rest"))).not.toThrow();
+    // A genuine Word package (same builder the extraction tests use).
+    expect(() => validateFileSignature("ok.docx", makeDocx(["A lease agreement."]))).not.toThrow();
+  });
+
+  it("rejects a zip archive that is not a Word document", () => {
+    // "PK" only proves it is *some* archive — the Word main document part must
+    // be present, or an unrelated .zip renamed to .docx would reach the parser.
+    expect(() => validateFileSignature("ok.docx", Buffer.from("PK\x03\x04 rest"))).toThrow(
+      DocumentError,
+    );
+    const notWord = Buffer.concat([Buffer.from("PK\x03\x04"), Buffer.from("photos/holiday.jpg")]);
+    expect(() => validateFileSignature("archive.docx", notWord)).toThrow(DocumentError);
+  });
+
+  it("rejects a PDF that has a header but no %%EOF trailer", () => {
+    const truncated = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(2048, 0x20)]);
+    expect(() => validateFileSignature("truncated.pdf", truncated)).toThrow(DocumentError);
+    // The same bytes with a proper trailer are accepted.
+    const complete = Buffer.concat([truncated, Buffer.from("\nstartxref\n0\n%%EOF\n")]);
+    expect(() => validateFileSignature("complete.pdf", complete)).not.toThrow();
   });
 });
 
@@ -259,15 +315,30 @@ describe("AskRequestSchema", () => {
     expect(AskRequestSchema.safeParse({ ...valid, question: "ab" }).success).toBe(false);
   });
 
-  it("rejects an oversized document", () => {
+  it("rejects a document over the extraction cap", () => {
+    // The schema cap matches MAX_TEXT_CHARS, so a client cannot send back more
+    // text than the extraction pipeline was ever willing to produce.
     expect(
-      AskRequestSchema.safeParse({ ...valid, documentText: "x".repeat(200_001) }).success,
+      AskRequestSchema.safeParse({ ...valid, documentText: "x".repeat(MAX_TEXT_CHARS + 1) }).success,
     ).toBe(false);
+    expect(
+      AskRequestSchema.safeParse({ ...valid, documentText: "x".repeat(MAX_TEXT_CHARS) }).success,
+    ).toBe(true);
   });
 
-  it("caps history length", () => {
+  it("caps history length and the size of each replayed turn", () => {
     const history = Array.from({ length: 11 }, () => ({ question: "q", answer: "a" }));
     expect(AskRequestSchema.safeParse({ ...valid, history }).success).toBe(false);
+    // History is replayed into the prompt, so a single entry cannot be
+    // unbounded — otherwise it is a way to inflate one request without limit.
+    expect(
+      AskRequestSchema.safeParse({ ...valid, history: [{ question: "q", answer: "a".repeat(4001) }] })
+        .success,
+    ).toBe(false);
+    expect(
+      AskRequestSchema.safeParse({ ...valid, history: [{ question: "q".repeat(1001), answer: "a" }] })
+        .success,
+    ).toBe(false);
   });
 });
 

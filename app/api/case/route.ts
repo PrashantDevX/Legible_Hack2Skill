@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AiError, askIntakeQuestions, buildCaseBrief, draftCommunication } from "@/lib/ai";
+import { MAX_JSON_BODY_BYTES, bodyTooLarge } from "@/lib/limits";
 import { CaseRequestSchema } from "@/lib/schemas";
 import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -13,6 +14,9 @@ export const maxDuration = 60;
  *   { mode: "draft",   problem, answers, draftType, documentText? }
  */
 export async function POST(request: NextRequest) {
+  if (bodyTooLarge(request, MAX_JSON_BODY_BYTES)) {
+    return NextResponse.json({ error: "That request is too large." }, { status: 413 });
+  }
   if (!rateLimit(`ai:${clientIp(request)}`, AI_RATE_LIMIT, AI_RATE_WINDOW_MS)) {
     return NextResponse.json(
       { error: "Too many requests — please wait a moment and try again." },

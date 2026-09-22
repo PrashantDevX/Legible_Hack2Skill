@@ -1,17 +1,23 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
+import { MAX_ASK_CONTEXT_CHARS, MAX_FILE_BYTES, MAX_TEXT_CHARS, MIN_TEXT_CHARS } from "./limits";
 
 /**
- * Document extraction and limits. Files are validated (extension, size),
- * extracted to plain text, normalized, and capped before anything is sent
- * to the model. No document content is persisted or logged.
+ * Document extraction and limits. Files are validated (extension, size,
+ * signature, container structure), extracted to plain text, normalized, and
+ * capped before anything is sent to the model. No document content is
+ * persisted or logged.
+ *
+ * The numeric limits live in `lib/limits.ts` (dependency-free) and are
+ * re-exported here for callers that already import this module.
  */
 
-export const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
-export const MIN_TEXT_CHARS = 200;
-export const MAX_TEXT_CHARS = 120_000; // ~30K tokens — bounded AI cost per request
+export { MAX_ASK_CONTEXT_CHARS, MAX_FILE_BYTES, MAX_TEXT_CHARS, MIN_TEXT_CHARS };
 
 const ALLOWED_EXTENSIONS = new Set(["pdf", "docx", "txt", "md"]);
+
+/** Marks the dropped middle so the model never reads the two halves as one. */
+const OMISSION_MARKER = "\n\n[middle portion of this document omitted]\n\n";
 
 export class DocumentError extends Error {
   constructor(
@@ -49,18 +55,65 @@ export function validateFile(filename: string, bytes: number): void {
 
 /**
  * Content validation: the file's leading bytes must match its extension's
- * real signature, so a renamed arbitrary file never reaches a parser.
+ * real signature, and the container must have the structure its parser needs,
+ * so a renamed or malformed file never reaches a parser.
  * Plain-text formats (txt/md) have no signature and are skipped.
  */
 export function validateFileSignature(filename: string, buffer: Buffer): void {
   const ext = extensionOf(filename);
-  if (ext === "pdf" && buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
-    throw new DocumentError("This file does not appear to be a valid PDF. If it is a scan or image, paste the text instead.");
+  if (ext === "pdf") {
+    if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
+      throw new DocumentError("This file does not appear to be a valid PDF. If it is a scan or image, paste the text instead.");
+    }
+    // A conformant PDF ends with a %%EOF trailer. Only checked once the file is
+    // large enough to have one, so small synthetic fixtures are unaffected.
+    if (buffer.length >= 1024 && !buffer.subarray(-2048).includes("%%EOF")) {
+      throw new DocumentError("This PDF appears to be incomplete or damaged — try another file or paste the text instead.");
+    }
   }
-  if (ext === "docx" && !(buffer[0] === 0x50 && buffer[1] === 0x4b)) {
+  if (ext === "docx") {
     // DOCX is a zip archive — every zip variant starts with "PK".
-    throw new DocumentError("This file does not appear to be a valid Word (DOCX) document.");
+    if (!(buffer[0] === 0x50 && buffer[1] === 0x4b)) {
+      throw new DocumentError("This file does not appear to be a valid Word (DOCX) document.");
+    }
+    // ...and a Word package must contain its main document part. Entry names
+    // appear literally in the zip's headers, so a byte search is enough and
+    // rejects an unrelated archive renamed to .docx.
+    if (!buffer.includes("word/document.xml")) {
+      throw new DocumentError(
+        "This file is an archive, but not a Word document. Save it as .docx and try again.",
+      );
+    }
   }
+}
+
+/**
+ * Bound the document text sent with a follow-up question or scenario. A large
+ * document is reduced to its head and tail rather than its head alone: the
+ * opening carries the parties, term and definitions, and the closing carries
+ * signatures, schedules and exhibits — where blanks and incomplete fields
+ * tend to live.
+ *
+ * The omission is marked inline (so the model never reads the two halves as
+ * contiguous) and reported to the caller. Quotes are verified against this
+ * same bounded text, so a finding can never be marked verified against a
+ * passage the model was never given.
+ */
+export function boundDocumentContext(
+  text: string,
+  limit: number = MAX_ASK_CONTEXT_CHARS,
+): { text: string; omitted: boolean } {
+  if (text.length <= limit) return { text, omitted: false };
+  // Reserve room for the marker so `limit` stays a true ceiling on what is
+  // actually sent, not just on the retained document text.
+  const budget = limit - OMISSION_MARKER.length;
+  if (budget <= 0) return { text: text.slice(0, limit), omitted: true };
+  const head = Math.floor(budget * 0.75);
+  const tail = budget - head;
+  return {
+    text: `${text.slice(0, head)}${OMISSION_MARKER}${text.slice(-tail)}`,
+    omitted: true,
+  };
 }
 
 /** Collapse Windows line endings and excessive blank lines; trim. */

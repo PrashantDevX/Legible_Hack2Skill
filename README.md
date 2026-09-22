@@ -69,11 +69,14 @@ A document-only workflow (upload → analyze) remains available — the analyzer
   - *Q&A / scenario* — one focused call per question, reusing the already-extracted document text.
   - *Communication draft* — one call from the user's facts and analyzed document text.
   - The *professional brief* and *case readiness* involve **no AI call at all** — they are deterministic compositions of structured data.
+- **Deterministic deduplication (`lib/ai-cache.ts`):** every structured call is keyed by `sha256(operation + model + input)`. Repeating an identical action — re-opening a document, re-asking the same question, double-clicking a button — is served from an in-process TTL cache (10 min, 100 entries, LRU) instead of hitting Gemini again. A request already in flight is *shared* rather than duplicated. Failures are never cached, so a retry stays possible. The model name is part of the key, so changing `GEMINI_MODEL` can never serve results from the previous model.
+- **Output ceilings:** each operation declares a `max_output_tokens` bound (`generation_config`), so one request cannot generate unbounded output. Each is set well above what its schema needs, so a normal response is never truncated.
 - **Validation:** Gemini enforces the JSON schema; the response is then re-validated with Zod. Unparseable or schema-invalid output returns a clean error; SDK errors are mapped to safe messages. Malformed AI output can never crash the app.
 - **Grounding:** every returned document quote is checked against the extracted text (`verifyQuotes`, whitespace-normalized, ellipsis-fragment-aware). The UI distinguishes verified quotes from AI paraphrases. Page numbers come only from the PDF extractor's real page markers (`findPages`). Section labels in the evidence view are AI-identified and labeled as such — never presented as independently verified.
 - **Hallucination control for case briefs:** every fact carries a schema-enforced origin (`user` / `document` / `ai`). The prompt forbids inventing facts, dates, amounts, laws, rights, or deadlines, and requires "Date not specified" rather than a fabricated date. The deterministic readiness calculation and the no-AI professional brief extend the same discipline.
 - **Prompt-injection defense:** all user prose and document text are wrapped in delimiters (`<problem>`, `<answers>`, `<document>`, …) and treated strictly as untrusted data in every system prompt — instructions inside them are ignored and analyzed as text. Both defenses are pinned by tests across all six prompts.
 - **Document processing:** PDF via `pdf-parse` (loaded as a server-external package so its worker resolves correctly in production builds), DOCX via `mammoth`, TXT read directly. Text is normalized and capped at 120,000 characters to bound cost and latency.
+- **Bounded follow-up context:** a follow-up question or scenario sends at most 60,000 characters of the document (`MAX_ASK_CONTEXT_CHARS`). A longer document is reduced to its **head and tail** — the opening carries the parties, term and definitions; the closing carries signatures, schedules and exhibits — with the dropped middle marked inline and reported to the model in a `<context-note>`, so the two halves are never read as contiguous. Quotes are verified against *this same bounded text*, so a finding can never be marked verified against a passage the model was never shown; a question about an omitted part degrades honestly into the existing "the document does not say" answer.
 - **Privacy:** `store: false` on every model call — requests and responses are not retained on Google's side. Cases and documents live only in the user's browser (localStorage, capped at 10 cases / 20 documents) and can be deleted at any time.
 
 ## Technology stack
@@ -82,35 +85,54 @@ Next.js (App Router) · TypeScript · React · Tailwind CSS v4 · `@google/genai
 
 Seven runtime dependencies, no database, no vector store, no additional service, no retrieval infrastructure — the bounded context is sent directly.
 
-## Security
-
-- **Rate limiting:** per-IP sliding-window limit (15 requests/minute) shared across the three AI endpoints — one visitor cannot burn the API quota. In-memory by design for a single-instance deployment.
-- **Secrets:** the API key lives only in `.env` (git-ignored); `.env.example` documents it. No key is ever sent to the browser.
-- **File validation:** extension allow-list (PDF/DOCX/TXT/MD), 5 MB cap, empty-file rejection — all *before* parsing — plus **magic-byte checks** (a `.pdf` must start with `%PDF-`, a `.docx` with the zip signature `PK`), so a renamed arbitrary file never reaches a parser. Corrupt or password-protected files surface as clean errors.
-- **Input validation:** all request payloads parsed with Zod (problem/question lengths, answer caps, document size, mode enums); text paths enforce a 200-character minimum so no AI call happens without meaningful input.
-- **Prompt injection:** user prose and documents are untrusted data (see GenAI architecture); pinned by tests on every prompt.
-- **Privacy:** no database, no file storage, no logging of document or case content. Documents live in request memory only; extracted text is returned to the same client that uploaded it. Local history is best-effort — if storage is blocked the app still works.
-- **Safe errors:** API failures map to short user-facing messages; internals are never leaked.
-
 ## Efficiency
 
-- **One model call per user action** — a complete case journey is ~5 calls (intake, brief, analysis, optional brief refresh per attached document, optional draft), each a single structured request.
+The strategy is: **one structured call per user action, never a repeated one, and never one that could have been computed.**
+
+- **One model call per user action** — a complete case journey is ~5 calls (intake, brief, analysis, optional brief refresh per attached document, optional draft), each a single structured request. No per-section fan-out.
+- **Identical work is never re-sent.** `lib/ai-cache.ts` keys each call by `sha256(operation + model + input)`: a repeated action is served from memory (10-minute TTL, 100-entry LRU), and concurrent identical requests share one in-flight call instead of racing. Measured on a production build: an identical repeat of a follow-up question went from **4.26 s to 0.0096 s** with no second model call.
+- **Follow-up Q&A reuses the extracted text, bounded.** Questions and scenarios reuse the already-extracted document rather than re-analyzing it, and send at most 60,000 characters (head + tail, middle marked as omitted) — not the full 120,000-character extraction.
+- **Deterministic work stays out of the model.** Case readiness, timeline ordering, the professional brief, quote verification, page lookup, and all validation are computed in code. The brief and readiness score make **zero** AI calls.
 - **Retries disabled** — the SDK's default 5-attempt retry loop is off; a failed request surfaces immediately instead of silently re-billing input tokens.
-- **No AI call without meaningful input** — minimum lengths on all input paths.
-- **Bounded context** — extracted text capped at 120,000 characters; case answers and document-findings summaries are capped before each call.
-- **No duplicate work** — extraction happens once per document; the case stores document *ids*, not copies; the professional brief and readiness score are computed, not generated.
+- **Output ceilings per operation** — a single request cannot generate unbounded output.
+- **No AI call without meaningful input** — minimum lengths on all input paths; oversized pastes and files are rejected before a call is made.
+- **No duplicate extraction** — extraction happens once per document; the case stores document *ids*, not copies.
+- **No RAG, no vector store, no retrieval infrastructure** — the context here is a single bounded document that fits in one request. A retrieval layer would add a service, an index, and a new failure mode to solve a problem this architecture does not have.
+
+## Security
+
+- **Rate limiting:** per-IP sliding-window limit (15 requests/minute) shared across the three AI endpoints — one visitor cannot burn the API quota. Applied *before* parsing, so a throttled request costs nothing. Verified live: requests 1–15 pass, 16+ return 429.
+- **Request-size limits:** a declared `Content-Length` over the ceiling is rejected with 413 **before the body is buffered** — 512 KB for JSON endpoints, 5 MB + 256 KB for the multipart upload path. The per-file check then narrows it to 5 MB.
+- **Secrets:** the API key lives only in `.env` (git-ignored); `.env.example` documents it. No `NEXT_PUBLIC_` variable exists, so no key or server value can reach the browser bundle.
+- **File validation:** extension allow-list (PDF/DOCX/TXT/MD), 5 MB cap, empty-file rejection — all *before* parsing — plus **content checks**, not just magic bytes: a `.pdf` must start with `%PDF-` **and** carry a `%%EOF` trailer, and a `.docx` must start with the zip signature `PK` **and** actually contain its `word/document.xml` part. A renamed or unrelated archive never reaches a parser. Corrupt or password-protected files surface as clean errors.
+- **Upload boundaries verified live:** text renamed `.pdf` → 400 "does not appear to be a valid PDF"; a `PK` archive that is not a Word package → 400 "an archive, but not a Word document". Both rejected in under 40 ms, before any parsing or model call.
+- **Input validation:** all request payloads parsed with Zod (problem/question lengths, answer caps, history caps, document size, mode enums); text paths enforce a 200-character minimum so no AI call happens without meaningful input.
+- **Every AI response is re-validated with Zod** before it reaches the UI — invalid or unparseable output becomes a clean error, never a render.
+- **Prompt injection:** user prose and documents are untrusted data, wrapped in delimiters (`<document>`, `<problem>`, `<answers>`, `<document-findings>`, `<reader-situation>`, `<draft-type>`) and named as data-not-instructions in every system prompt; pinned by tests on all six prompts. The omission note added for bounded context is itself delimited the same way.
+- **Privacy:** no database, no file storage, no logging of document or case content. Documents live in request memory only; extracted text is returned only to the client that uploaded it, and local history is best-effort — if storage is blocked the app still works. `store: false` on every model call.
+- **Safe errors:** API failures map to short user-facing messages; internals and provider detail are never leaked.
+- **Rendering:** all user, document, and AI content is rendered as React text nodes — there is no `dangerouslySetInnerHTML`, no HTML injection path from a document into the page.
+
+### One honest privacy caveat
+
+The deduplication cache holds model *output* — which can quote the document — in process memory for up to 10 minutes, where previously a request's text lived only for the duration of that request. It is bounded (100 entries), never written to disk, and never logged, but it does widen the in-memory window. If that trade is not wanted, `AI_CACHE_TTL_MS` in `lib/ai-cache.ts` is the single knob; setting it to `0` disables reuse while keeping in-flight deduplication.
 
 ## Testing
 
 `npm test` — unit tests (Vitest) covering the highest-risk logic:
 
 - File validation: allowed types, rejected extensions, oversized and empty files
-- **Magic-byte signatures**: renamed non-PDF/non-DOCX files rejected before parsing
+- **Content signatures**: renamed non-PDF files, PDFs with a header but no `%%EOF` trailer, and zip archives that are not Word packages all rejected before parsing
 - **DOCX extraction** (from a real minimal DOCX package built in-test) and **corrupt-PDF handling**
 - Text normalization and the truncation path for oversized documents
+- **Bounded follow-up context**: short documents pass through unchanged; long documents keep their head and tail, are marked as omitted, stay within the cap, and — the property that matters — a quote taken from the omitted middle verifies as **`false`**
+- **Deterministic deduplication**: key stability and separation, one producer call for repeated identical requests, in-flight sharing, TTL expiry, failures left uncached, LRU bound
+- **Repeated Q&A**: the same question on the same document is one request; a different question, a different document, or new history is a different one
+- **Request-size limits**: ceiling ordering, at-limit allowed, over-limit rejected, and an absent or non-numeric `Content-Length` deferring to the schema caps
 - The grounding check: exact, whitespace-variant, ellipsis-abbreviated, blank/placeholder, absent, and empty quotes
 - Evidence-map page detection: page-marker mapping, abbreviated quotes, no-markers and not-found cases
 - Document analysis, request, and scenario schemas; the case schemas: source-tagged facts, timeline, intake, draft, and request validation for all three case modes
+- **The three shipped flows end-to-end, deterministically**: every request schema each journey sends actually accepts the demo payloads, the sample documents clear the minimum the upload path enforces, readiness computes without AI and rises to 100, and the consultation brief keeps its source labels and makes no outcome claims
 - **Case readiness**: deterministic completeness calculation
 - **Rate limiter**: window behavior and per-key isolation
 - Local document history and case history: round-trips, caps, deletion, corrupt/blocked storage fallback
@@ -178,6 +200,8 @@ Three polished examples, each one click from the home page — examples of the g
 - No legal-domain knowledge base, no statute lookup, no jurisdiction-specific conclusions — deliberately. Legible organizes and prepares; it does not tell you what the law says where you live.
 - Documents are analyzed in-memory and returned to your browser; case and document history is browser-local (cleared if you clear site data).
 - The rate limiter is per server instance; scanned PDFs (images without a text layer) cannot be read — paste the text instead.
+- A follow-up question about a very long document (over 60,000 characters) may fall in the omitted middle; the model is told the text is incomplete and will say it cannot determine the answer rather than guess.
+- The deduplication cache keeps model output in server memory for up to 10 minutes (bounded, never logged, never written to disk) — see the privacy caveat under Security.
 
 ## Legal disclaimer
 

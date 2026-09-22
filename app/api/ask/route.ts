@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { askQuestion, AiError } from "@/lib/ai";
-import { findPages, verifyQuotes } from "@/lib/document";
+import { boundDocumentContext, findPages, verifyQuotes } from "@/lib/document";
+import { MAX_JSON_BODY_BYTES, bodyTooLarge } from "@/lib/limits";
 import { AskRequestSchema } from "@/lib/schemas";
 import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * Attached when the document was too long to send whole. Without it the model
+ * would read the head and tail as contiguous text and could answer as though
+ * the omitted middle did not exist.
+ */
+const OMITTED_NOTE =
+  "The document below is not complete: a middle portion was omitted because the document is long. " +
+  "If answering depends on an omitted part, say the provided text does not cover it rather than guessing.";
+
 /** POST JSON { documentText, question, history, situation? } — grounded Q&A
  *  over one document. */
 export async function POST(request: NextRequest) {
+  if (bodyTooLarge(request, MAX_JSON_BODY_BYTES)) {
+    return NextResponse.json({ error: "That request is too large." }, { status: 413 });
+  }
   if (!rateLimit(`ai:${clientIp(request)}`, AI_RATE_LIMIT, AI_RATE_WINDOW_MS)) {
     return NextResponse.json(
       { error: "Too many requests — please wait a moment and try again." },
@@ -31,22 +44,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await askQuestion(parsed.data);
+    // Bound the context once and use exactly this text for both the model call
+    // and quote verification, so a finding can never be marked verified
+    // against a passage the model was not shown.
+    const bounded = boundDocumentContext(parsed.data.documentText);
+    const result = await askQuestion(
+      { ...parsed.data, documentText: bounded.text },
+      bounded.omitted ? OMITTED_NOTE : undefined,
+    );
 
     if ("scenario" in result) {
       const scenario = result.scenario;
       return NextResponse.json({
         answer: {
           ...scenario,
-          sourceVerified: verifyQuotes(parsed.data.documentText, [scenario.source])[0],
-          page: findPages(parsed.data.documentText, [scenario.source])[0],
+          sourceVerified: verifyQuotes(bounded.text, [scenario.source])[0],
+          page: findPages(bounded.text, [scenario.source])[0],
         },
       });
     }
 
     const answer = result.answer;
     const quotesVerified = verifyQuotes(
-      parsed.data.documentText,
+      bounded.text,
       answer.supportingQuotes.map((q) => q.quote),
     );
     return NextResponse.json({ answer: { ...answer, quotesVerified } });

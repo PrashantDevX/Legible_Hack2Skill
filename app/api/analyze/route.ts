@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeDocument, AiError } from "@/lib/ai";
-import { DocumentError, extractText, findPages, validateFile, verifyQuotes } from "@/lib/document";
+import {
+  DocumentError,
+  MAX_TEXT_CHARS,
+  MIN_TEXT_CHARS,
+  extractText,
+  findPages,
+  validateFile,
+  verifyQuotes,
+} from "@/lib/document";
+import { MAX_MULTIPART_BODY_BYTES, bodyTooLarge } from "@/lib/limits";
 import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -16,6 +25,14 @@ export const maxDuration = 60;
  * marking which quotes were verified verbatim in the extracted document text.
  */
 export async function POST(request: NextRequest) {
+  // The per-file size check can only run once the body has been read, so
+  // reject an oversized body here first rather than buffering it.
+  if (bodyTooLarge(request, MAX_MULTIPART_BODY_BYTES)) {
+    return NextResponse.json(
+      { error: "That upload is too large. Maximum file size is 5 MB." },
+      { status: 413 },
+    );
+  }
   if (!rateLimit(`ai:${clientIp(request)}`, AI_RATE_LIMIT, AI_RATE_WINDOW_MS)) {
     return NextResponse.json(
       { error: "Too many requests — please wait a moment and try again." },
@@ -35,12 +52,14 @@ export async function POST(request: NextRequest) {
       const extracted = await extractText(file.name, Buffer.from(await file.arrayBuffer()));
       text = extracted.text;
       truncated = extracted.truncated;
-    } else if (typeof pasted === "string" && pasted.trim().length >= 200) {
-      text = pasted.trim().slice(0, 120_000);
-      truncated = pasted.length > 120_000;
+    } else if (typeof pasted === "string" && pasted.trim().length >= MIN_TEXT_CHARS) {
+      text = pasted.trim().slice(0, MAX_TEXT_CHARS);
+      truncated = pasted.length > MAX_TEXT_CHARS;
     } else {
       return NextResponse.json(
-        { error: "Upload a document (PDF, DOCX, TXT) or paste at least 200 characters of text." },
+        {
+          error: `Upload a document (PDF, DOCX, TXT) or paste at least ${MIN_TEXT_CHARS} characters of text.`,
+        },
         { status: 400 },
       );
     }

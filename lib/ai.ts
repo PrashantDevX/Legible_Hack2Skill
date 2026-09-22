@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import { cacheKey, cached } from "./ai-cache";
 import {
   AnalysisSchema,
   AnswerSchema,
@@ -85,40 +86,69 @@ function toAiError(error: unknown): AiError {
 }
 
 /**
+ * Output ceilings per operation. Gemini would otherwise generate until it
+ * stops on its own; these bound the worst-case cost of a single request. Each
+ * is set well above what the schema asks for, so a normal response is never
+ * truncated.
+ */
+const MAX_OUTPUT_TOKENS = {
+  analysis: 8192,
+  brief: 8192,
+  draft: 4096,
+  intake: 2048,
+  answer: 2048,
+  scenario: 1536,
+} as const;
+
+type Operation = keyof typeof MAX_OUTPUT_TOKENS;
+
+/**
  * One structured model call. Gemini enforces the JSON schema in
  * response_format; we re-validate with Zod before anything reaches the UI,
  * so malformed AI output can never crash the app.
+ *
+ * Identical requests are served from the deterministic cache, so a repeated
+ * user action costs no model call. A failure is never cached — it surfaces
+ * immediately and stays retryable.
  */
 async function generateStructured<T>(
+  operation: Operation,
   system: string,
   input: string,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  let outputText: string | undefined;
-  try {
-    const interaction = await client.interactions.create({
-      model: MODEL,
-      input,
-      system_instruction: system,
-      response_format: { type: "text", mime_type: "application/json", schema: toGeminiSchema(schema) },
-      store: false, // do not retain the request or response on Google's side
-    });
-    outputText = interaction.output_text;
-  } catch (error) {
-    throw toAiError(error);
-  }
+  const produce = async (): Promise<T> => {
+    let outputText: string | undefined;
+    try {
+      const interaction = await client.interactions.create({
+        model: MODEL,
+        input,
+        system_instruction: system,
+        response_format: { type: "text", mime_type: "application/json", schema: toGeminiSchema(schema) },
+        generation_config: { max_output_tokens: MAX_OUTPUT_TOKENS[operation] },
+        store: false, // do not retain the request or response on Google's side
+      });
+      outputText = interaction.output_text;
+    } catch (error) {
+      throw toAiError(error);
+    }
 
-  let raw: unknown;
-  try {
-    raw = JSON.parse(outputText ?? "");
-  } catch {
-    throw new AiError("The AI returned an unreadable response. Please try again.");
-  }
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) {
-    throw new AiError("The AI returned an unexpected response. Please try again.");
-  }
-  return parsed.data;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(outputText ?? "");
+    } catch {
+      throw new AiError("The AI returned an unreadable response. Please try again.");
+    }
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) {
+      throw new AiError("The AI returned an unexpected response. Please try again.");
+    }
+    return parsed.data;
+  };
+
+  // The model is part of the key: switching GEMINI_MODEL must not serve
+  // results produced by the previous one.
+  return cached(cacheKey(`${operation}:${MODEL}`, input), produce);
 }
 
 /** One structured call: summary, clauses, obligations, concerns, questions, steps.
@@ -131,18 +161,23 @@ export function analyzeDocument(documentText: string, situation?: string): Promi
   ]
     .filter(Boolean)
     .join("\n\n");
-  return generateStructured(ANALYSIS_SYSTEM_PROMPT, input, AnalysisSchema);
+  return generateStructured("analysis", ANALYSIS_SYSTEM_PROMPT, input, AnalysisSchema);
 }
 
 /**
  * Grounded follow-up: a direct question or a "what if?" scenario, each one
  * focused call reusing the already-extracted document text. The result is
  * discriminated so callers narrow by shape, not by cast.
+ *
+ * `contextNote` carries the caller's note when the document had to be bounded
+ * (see boundDocumentContext) so the model knows the text is not complete.
  */
 export async function askQuestion(
   request: AskRequest,
+  contextNote?: string,
 ): Promise<{ answer: Answer } | { scenario: Scenario }> {
   const input = [
+    contextNote ? tagged("context-note", contextNote) : null,
     request.situation ? tagged("reader-situation", request.situation) : null,
     documentBlock(request.documentText),
     `Question: ${request.question}`,
@@ -150,13 +185,16 @@ export async function askQuestion(
     .filter(Boolean)
     .join("\n\n");
   if (request.mode === "scenario") {
-    return { scenario: await generateStructured(SCENARIO_SYSTEM_PROMPT, input, ScenarioSchema) };
+    return {
+      scenario: await generateStructured("scenario", SCENARIO_SYSTEM_PROMPT, input, ScenarioSchema),
+    };
   }
   const history = request.history
     .map((turn) => `Reader previously asked: ${turn.question}\nYou answered: ${turn.answer}`)
     .join("\n\n");
   return {
     answer: await generateStructured(
+      "answer",
       ASK_SYSTEM_PROMPT,
       [history, input].filter(Boolean).join("\n\n"),
       AnswerSchema,
@@ -171,6 +209,7 @@ export type CaseAnswer = { question: string; answer: string };
 /** Smart intake: 3-5 clarifying questions generated from the problem description. */
 export function askIntakeQuestions(problem: string): Promise<IntakeQuestions> {
   return generateStructured(
+    "intake",
     INTAKE_SYSTEM_PROMPT,
     tagged("problem", problem),
     IntakeQuestionsSchema,
@@ -196,7 +235,7 @@ export function buildCaseBrief(
   ]
     .filter(Boolean)
     .join("\n\n");
-  return generateStructured(CASE_BRIEF_SYSTEM_PROMPT, input, CaseBriefSchema);
+  return generateStructured("brief", CASE_BRIEF_SYSTEM_PROMPT, input, CaseBriefSchema);
 }
 
 /** A factual communication draft — based only on the user's facts, answers,
@@ -220,5 +259,5 @@ export function draftCommunication(
   ]
     .filter(Boolean)
     .join("\n\n");
-  return generateStructured(DRAFT_SYSTEM_PROMPT, input, DraftSchema);
+  return generateStructured("draft", DRAFT_SYSTEM_PROMPT, input, DraftSchema);
 }

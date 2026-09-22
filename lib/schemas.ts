@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_QUESTION_CHARS, MAX_TEXT_CHARS } from "./limits";
 
 /**
  * Shared request/response schemas. The AI output schemas are used both to
@@ -90,10 +91,19 @@ export type Scenario = z.infer<typeof ScenarioSchema>;
 // --- API request payloads ---------------------------------------------------
 
 export const AskRequestSchema = z.object({
-  documentText: z.string().min(1).max(200_000),
-  question: z.string().trim().min(3, "Question is too short").max(1000),
+  /** Bounded by the same cap the extraction pipeline applies, so the client
+   *  can never send back more than the server was willing to produce. */
+  documentText: z.string().min(1).max(MAX_TEXT_CHARS),
+  question: z.string().trim().min(3, "Question is too short").max(MAX_QUESTION_CHARS),
+  // Prior turns are replayed into the prompt, so each entry is bounded too —
+  // otherwise history is an unbounded way to inflate a single request.
   history: z
-    .array(z.object({ question: z.string(), answer: z.string() }))
+    .array(
+      z.object({
+        question: z.string().max(MAX_QUESTION_CHARS),
+        answer: z.string().max(4000),
+      }),
+    )
     .max(10)
     .default([]),
   mode: z.enum(["ask", "scenario"]).default("ask"),
@@ -216,7 +226,7 @@ export const CaseRequestSchema = z.discriminatedUnion("mode", [
       .max(8)
       .default([]),
     draftType: DraftTypeSchema,
-    documentText: z.string().max(200_000).optional(),
+    documentText: z.string().max(MAX_TEXT_CHARS).optional(),
   }),
 ]);
 export type CaseRequest = z.infer<typeof CaseRequestSchema>;
