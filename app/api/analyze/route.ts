@@ -4,7 +4,9 @@ import { DocumentError, extractText, findPages, validateFile, verifyQuotes } fro
 import { AI_RATE_LIMIT, AI_RATE_WINDOW_MS, clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// 60s is the ceiling on Vercel's Hobby plan; a higher value is silently clamped
+// there, so this is the honest number. Pro + Fluid compute raises it to 300.
+export const maxDuration = 60;
 
 /**
  * POST multipart/form-data with either `file` (PDF/DOCX/TXT/MD) or `text`,

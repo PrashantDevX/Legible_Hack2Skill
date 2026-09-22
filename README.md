@@ -138,7 +138,24 @@ npm run dev            # http://localhost:3000
 
 ## Deployment
 
-Any Node host. On Vercel: import the repo, set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) as environment variables, deploy. No other infrastructure is needed. (Note: on Vercel's Hobby plan, set `maxDuration` in the API routes to 60 or lower.)
+### Vercel
+
+Next.js is auto-detected — there is no `vercel.json`, and none is needed. Import the repo, then:
+
+1. **Set `GEMINI_API_KEY`** under Project → Settings → Environment Variables (Production, Preview, and Development). Optionally set `GEMINI_MODEL`. Nothing else is required — no database, cache, queue, or storage service.
+2. **Deploy.** The default build command (`next build`) and output are correct as-is.
+
+Two deployment notes, both handled in the repo:
+
+- **`pdf-parse` runs as an external Node package** (`serverExternalPackages` in `next.config.ts`), so its worker and `pdfjs-dist` are traced into the function. Verified against the emitted trace — no `outputFileTracingIncludes` needed.
+- **`maxDuration` is 60s on all three API routes**, which is Vercel Hobby's ceiling. A larger value is silently clamped there, so 60 is the honest number; Pro with Fluid compute raises the ceiling to 300s for unusually long documents.
+
+Two honest caveats specific to serverless:
+
+- **Rate limiting is per-instance.** `lib/rate-limit.ts` is an in-memory sliding window, so on a platform that scales functions horizontally the effective limit is `15/min × active instances`, not 15/min globally. It is a courtesy throttle against accidental loops, not a hard quota. A shared counter (Redis/Upstash) would be the upgrade if it ever needs to be strict.
+- **Client IP comes from `x-forwarded-for`**, which Vercel sets — `clientIp()` reads it already, so no change was needed there.
+
+### Any Node host
 
 ```
 npm run build   # production build
