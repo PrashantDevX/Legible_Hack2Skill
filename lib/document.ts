@@ -1,5 +1,3 @@
-import { PDFParse } from "pdf-parse";
-import mammoth from "mammoth";
 import { MAX_ASK_CONTEXT_CHARS, MAX_FILE_BYTES, MAX_TEXT_CHARS, MIN_TEXT_CHARS } from "./limits";
 
 /**
@@ -7,6 +5,11 @@ import { MAX_ASK_CONTEXT_CHARS, MAX_FILE_BYTES, MAX_TEXT_CHARS, MIN_TEXT_CHARS }
  * signature, container structure), extracted to plain text, normalized, and
  * capped before anything is sent to the model. No document content is
  * persisted or logged.
+ *
+ * The parsers are imported inside `extractText` rather than at module scope:
+ * the bounding and quote helpers below are pure string functions, and routes
+ * that only use those (Q&A, drafts) must not pay to load pdf.js and mammoth on
+ * every cold start.
  *
  * The numeric limits live in `lib/limits.ts` (dependency-free) and are
  * re-exported here for callers that already import this module.
@@ -138,6 +141,7 @@ export async function extractText(filename: string, buffer: Buffer): Promise<Ext
   let raw: string;
   try {
     if (ext === "pdf") {
+      const { PDFParse } = await import("pdf-parse");
       const parser = new PDFParse({ data: new Uint8Array(buffer) });
       try {
         const result = await parser.getText();
@@ -146,6 +150,7 @@ export async function extractText(filename: string, buffer: Buffer): Promise<Ext
         await parser.destroy();
       }
     } else if (ext === "docx") {
+      const mammoth = (await import("mammoth")).default;
       const result = await mammoth.extractRawText({ buffer });
       raw = result.value;
     } else {
